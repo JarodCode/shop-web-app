@@ -1,0 +1,137 @@
+// profile.js - Profile page functionality
+
+// DOM elements
+const loadingOverlay = document.getElementById('loadingOverlay');
+const errorMessage = document.getElementById('errorMessage');
+const errorText = document.getElementById('errorText');
+const retryBtn = document.getElementById('retryBtn');
+const backToLoginBtn = document.getElementById('backToLoginBtn');
+
+// Profile display elements
+const usernameDisplay = document.getElementById('username-display');
+const useridDisplay = document.getElementById('userid-display');
+const memberSinceDisplay = document.getElementById('member-since');
+const accountTypeDisplay = document.getElementById('account-type');
+
+// Navigation buttons
+const booksBtn = document.getElementById('booksBtn');
+const dvdsBtn = document.getElementById('dvdsBtn');
+const cdsBtn = document.getElementById('cdsBtn');
+
+// Action buttons
+const createArticleBtn = document.getElementById('createArticleBtn');
+const myArticlesBtn = document.getElementById('myArticlesBtn');
+const settingsBtn = document.getElementById('settingsBtn');
+const logoutBtn = document.getElementById('logoutBtn');
+
+// Load profile data when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    loadProfile();
+});
+
+// Load profile function
+async function loadProfile() {
+    try {
+        showLoading();
+        
+        const response = await fetch('http://localhost:8000/test_cookie', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include',
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            displayProfile(data.token_data);
+            setupEventListeners();
+            hideLoading();
+        } else if (response.status === 401) {
+            // Token expired or invalid, redirect to login
+            alert('Session expired. Please login again.');
+            window.location.href = 'login.html';
+        } else {
+            throw new Error('Failed to load profile');
+        }
+    } catch (error) {
+        console.error('Profile loading error:', error);
+        showError('Failed to load profile. Please check your connection and try again.');
+    }
+}
+
+// Display profile information
+function displayProfile(tokenData) {
+    usernameDisplay.textContent = tokenData.username;
+    useridDisplay.textContent = tokenData.userId;
+    
+    // Convert timestamp to readable date
+    const memberSince = new Date(tokenData.exp * 1000 - (24 * 60 * 60 * 1000)); // Approximate registration date
+    memberSinceDisplay.textContent = memberSince.toLocaleDateString();
+    
+    // Display account type
+    accountTypeDisplay.textContent = tokenData.isAdmin ? 'Administrator' : 'Regular User';
+}
+
+// Setup event listeners
+function setupEventListeners() {
+    // Logout button
+    logoutBtn.addEventListener('click', async function() {
+        if (confirm('Are you sure you want to logout?')) {
+            await logout();
+        }
+    });
+
+    // Error handling buttons
+    retryBtn.addEventListener('click', function() {
+        loadProfile();
+    });
+
+    backToLoginBtn.addEventListener('click', function() {
+        window.location.href = 'login.html';
+    });
+}
+
+// Logout function
+async function logout() {
+    try {
+        const response = await fetch('http://localhost:8000/api/auth/logout', {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (response.ok) {
+            // Clear any client-side storage if needed
+            alert('Logged out successfully');
+            window.location.href = 'login.html';
+        } else {
+            throw new Error('Logout failed');
+        }
+    } catch (error) {
+        console.error('Logout error:', error);
+        // Even if logout fails on server, redirect to login
+        alert('Logout completed');
+        window.location.href = 'login.html';
+    }
+}
+
+// Show loading overlay
+function showLoading() {
+    loadingOverlay.style.display = 'flex';
+    errorMessage.style.display = 'none';
+}
+
+// Hide loading overlay
+function hideLoading() {
+    loadingOverlay.style.display = 'none';
+}
+
+// Show error message
+function showError(message) {
+    hideLoading();
+    errorText.textContent = message;
+    errorMessage.style.display = 'block';
+}

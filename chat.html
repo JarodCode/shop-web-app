@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat - Marketplace</title>
+</head>
+<body>
+    <div class="chat-container">
+        <!-- Chat Header -->
+        <div class="chat-header">
+            <button id="backButton" class="back-button">← Back</button>
+            <div id="chatPartnerAvatar" class="chat-partner-avatar">?</div>
+            <div class="chat-info">
+                <h2 id="chatPartnerName">Loading...</h2>
+                <div id="chatSubtitle" class="chat-subtitle">Connecting...</div>
+            </div>
+            <div id="connectionStatus" class="connection-status connecting">Connecting...</div>
+        </div>
+
+        <!-- Messages Container -->
+        <div id="messagesContainer" class="messages-container">
+            <div id="emptyChat" class="empty-chat">
+                No messages yet. Start the conversation!
+            </div>
+        </div>
+
+        <!-- Typing Indicator -->
+        <div id="typingIndicator" class="typing-indicator">
+            <span id="typingUser">Someone</span> is typing
+            <div class="typing-dots">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+            </div>
+        </div>
+
+        <!-- Input Container -->
+        <div class="input-container">
+            <div class="input-wrapper">
+                <textarea 
+                    id="messageInput" 
+                    class="message-input" 
+                    placeholder="Type your message..."
+                    rows="1"
+                ></textarea>
+                <button id="sendButton" class="send-button" disabled>Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="chat.js"></script>
+</body>
+</html>

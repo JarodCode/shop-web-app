@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profile - Authentication System</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header class="profile-header">
+            <h1>Welcome to Your Profile</h1>
+            <button id="logoutBtn" class="logout-btn">Logout</button>
+        </header>
+        
+        <section class="profile-info">
+            <div class="profile-card">
+                <h2>Profile Information</h2>
+                <div class="profile-details">
+                    <div class="profile-item">
+                        <label>Username:</label>
+                        <span id="username-display">Loading...</span>
+                    </div>
+                    <div class="profile-item">
+                        <label>User ID:</label>
+                        <span id="userid-display">Loading...</span>
+                    </div>
+                    <div class="profile-item">
+                        <label>Member Since:</label>
+                        <span id="member-since">Loading...</span>
+                    </div>
+                    <div class="profile-item">
+                        <label>Account Type:</label>
+                        <span id="account-type">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="navigation-section">
+            <h2>Browse Categories</h2>
+            <div class="category-buttons">
+                <a href="marketplace.html">
+                    <button id="booksBtn" class="category-btn books-btn">
+                        <div class="btn-icon">📚</div>
+                        <div class="btn-text">
+                            <h3>Books</h3>
+                            <p>Browse and manage books</p>
+                        </div>
+                    </button>
+                </a>
+                
+                <a href="marketplace.html">
+                    <button id="dvdsBtn" class="category-btn dvds-btn">
+                        <div class="btn-icon">📀</div>
+                        <div class="btn-text">
+                            <h3>DVDs</h3>
+                            <p>Browse and manage DVDs</p>
+                        </div>
+                    </button>
+                </a>
+                
+                    <a href="marketplace.html">
+                    <button id="cdsBtn" class="category-btn cds-btn">
+                        <div class="btn-icon">💿</div>
+                        <div class="btn-text">
+                            <h3>CDs</h3>
+                            <p>Browse and manage CDs</p>
+                        </div>
+                    </button>
+                </a>
+
+            </div>
+        </section>
+
+        <section class="quick-actions">
+            <h2>Quick Actions</h2>
+            <div class="action-buttons">
+                <a href="create_article.html">
+                    <button id="createArticleBtn" class="action-btn create-btn">
+                        <span class="btn-icon">➕</span>
+                        <span>Create New Article</span>
+                    </button>
+                </a>
+                
+                <a href="conversations.html">
+                    <button id="conversationsBtn" class="action-btn conversations-btn">
+                        <span class="btn-icon">💬</span>
+                        <span>My Conversations</span>
+                    </button>
+                </a>
+                
+                <button id="myArticlesBtn" class="action-btn manage-btn">
+                    <span class="btn-icon">📋</span>
+                    <span>My Articles</span>
+                </button>
+                
+                <button id="settingsBtn" class="action-btn settings-btn">
+                    <span class="btn-icon">⚙️</span>
+                    <span>Settings</span>
+                </button>
+            </div>
+        </section>
+
+        <div class="loading-overlay" id="loadingOverlay">
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+                <p>Loading profile...</p>
+            </div>
+        </div>
+
+        <div class="error-message" id="errorMessage" style="display: none;">
+            <h3>Error Loading Profile</h3>
+            <p id="errorText">Unable to load profile information.</p>
+            <button id="retryBtn">Retry</button>
+            <button id="backToLoginBtn">Back to Login</button>
+        </div>
+    </div>
+
+    <script src="profile.js"></script>
+</body>
+</html>

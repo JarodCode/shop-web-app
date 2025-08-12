@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Conversations - Marketplace</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="conversations-header">
+            <div class="header-left">
+                <button id="backButton" class="back-button">← Back</button>
+                <h1>My Conversations</h1>
+            </div>
+            <div class="header-right">
+                <span id="conversationCount" class="conversation-count">0 conversations</span>
+            </div>
+        </header>
+
+        <!-- Loading State -->
+        <div class="loading-overlay" id="loadingOverlay">
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+                <p>Loading conversations...</p>
+            </div>
+        </div>
+
+        <!-- Error State -->
+        <div class="error-message" id="errorMessage" style="display: none;">
+            <h3>Error Loading Conversations</h3>
+            <p id="errorText">Unable to load your conversations.</p>
+            <button id="retryBtn" class="retry-btn">Retry</button>
+        </div>
+
+        <!-- Empty State -->
+        <div class="empty-conversations" id="emptyConversations" style="display: none;">
+            <div class="empty-icon">💬</div>
+            <h3>No conversations yet</h3>
+            <p>Start browsing items to begin chatting with sellers!</p>
+            <a href="marketplace.html">
+                <button class="browse-btn">Browse Marketplace</button>
+            </a>
+        </div>
+
+        <!-- Conversations List -->
+        <div class="conversations-list" id="conversationsList">
+            <!-- Conversation items will be dynamically added here -->
+        </div>
+    </div>
+
+    <script src="conversations.js"></script>
+</body>
+</html>

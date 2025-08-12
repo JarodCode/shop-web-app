@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketplace</title>
+</head>
+<body>
+    <div class="container">
+        <header class="page-header">
+            <div class="header-content">
+                <h1 id="pageTitle">📚 Marketplace</h1>
+                <div class="header-actions">
+                    <button id="addItemBtn">Add New Item</button>
+                    <a href="profile.html">
+                        <button id="backToProfileBtn">← Back to Profile</button>
+                    </a>
+                </div>
+            </div>
+            <div class="item-type-nav">
+                <a href="?type=books" class="nav-btn" id="booksNav">📚 Books</a>
+                <a href="?type=dvds" class="nav-btn" id="dvdsNav">🎬 DVDs</a>
+                <a href="?type=cds" class="nav-btn" id="cdsNav">💿 CDs</a>
+            </div>
+        </header>
+
+        <section class="filters-section">
+            <div class="filters-container">
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="Search items...">
+                    <button id="searchBtn">🔍</button>
+                </div>
+                <div class="filter-controls">
+                    <select id="genreFilter">
+                        <option value="">All Genres</option>
+                    </select>
+                    <select id="sortBy">
+                        <option value="newest">Newest First</option>
+                        <option value="oldest">Oldest First</option>
+                        <option value="price-low">Price: Low to High</option>
+                        <option value="price-high">Price: High to Low</option>
+                        <option value="title">Title A-Z</option>
+                    </select>
+                    <button id="clearFiltersBtn">Clear Filters</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="articles-section">
+            <div class="section-header">
+                <h2 id="sectionTitle">Available Items</h2>
+                <div class="view-toggle">
+                    <button id="gridViewBtn" class="view-btn active">Grid</button>
+                    <button id="listViewBtn" class="view-btn">List</button>
+                </div>
+            </div>
+
+            <div class="loading-container" id="loadingContainer">
+                <div class="loading-spinner">
+                    <div class="spinner"></div>
+                    <p id="loadingText">Loading items...</p>
+                </div>
+            </div>
+
+            <div class="error-container" id="errorContainer" style="display: none;">
+                <div class="error-message">
+                    <h3>Unable to Load Items</h3>
+                    <p id="errorText">Please check your connection and try again.</p>
+                    <button id="retryBtn">Retry</button>
+                </div>
+            </div>
+
+            <div class="no-results" id="noResults" style="display: none;">
+                <div class="no-results-content">
+                    <h3>No Items Found</h3>
+                    <p>No items match your current search or filter criteria.</p>
+                    <button id="clearSearchBtn">Clear Search</button>
+                </div>
+            </div>
+
+            <div class="articles-grid" id="articlesGrid">
+                <!-- Articles will be populated here by JavaScript -->
+            </div>
+        </section>
+
+        <!-- Article Details Modal -->
+        <div class="modal-overlay" id="modalOverlay" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="modalTitle">Item Details</h3>
+                    <button id="closeModal">&times;</button>
+                </div>
+                <div class="modal-body" id="modalBody">
+                    <!-- Modal content will be populated by JavaScript -->
+                </div>
+                <div class="modal-footer">
+                    <button id="contactSellerBtn">Contact Seller</button>
+                    <button id="closeModalBtn">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="marketplace.js"></script>
+</body>
+</html>
