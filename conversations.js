@@ -1,4 +1,4 @@
-// conversations.js - Conversations list functionality
+// conversations.js - Fixed version with proper conversation tracking
 
 class ConversationsApp {
     constructor() {
@@ -35,7 +35,6 @@ class ConversationsApp {
                 
                 await this.loadConversations();
             } else {
-                // User not authenticated
                 alert('You must be logged in to view conversations');
                 window.location.href = 'login.html';
             }
@@ -56,16 +55,16 @@ class ConversationsApp {
             const articlesData = await articlesResponse.json();
             const articles = articlesData.articles;
             
-            // Get conversations for each article the user is involved in
+            // Build conversations list
             const conversationPromises = [];
-            const userArticles = articles.filter(article => article.user_id === this.currentUserId);
             
-            // For articles owned by current user, check if there are any messages
+            // For articles owned by current user
+            const userArticles = articles.filter(article => article.user_id === this.currentUserId);
             for (const article of userArticles) {
                 conversationPromises.push(this.getArticleConversation(article, 'seller'));
             }
             
-            // For articles not owned by current user, check if current user has sent messages
+            // For articles where user has sent messages
             const otherArticles = articles.filter(article => article.user_id !== this.currentUserId);
             for (const article of otherArticles) {
                 conversationPromises.push(this.getArticleConversation(article, 'buyer'));
@@ -74,7 +73,7 @@ class ConversationsApp {
             const conversationResults = await Promise.all(conversationPromises);
             this.conversations = conversationResults.filter(conv => conv !== null);
             
-            // Sort conversations by last message time
+            // Sort by last message time
             this.conversations.sort((a, b) => new Date(b.lastMessageTime) - new Date(a.lastMessageTime));
             
             this.displayConversations();
@@ -97,11 +96,9 @@ class ConversationsApp {
             const data = await response.json();
             const messages = data.messages || [];
             
-            // If no messages, return null
             if (messages.length === 0) return null;
             
-            // If user is seller, check if there are messages from other users
-            // If user is buyer, check if user has sent messages
+            // Check if user is involved in this conversation
             let hasUserMessages = false;
             let otherParticipants = new Set();
             
@@ -124,11 +121,10 @@ class ConversationsApp {
             const itemInfo = article.book_info || article.dvd_info || article.cd_info || article.item_info;
             const title = itemInfo?.title || itemInfo?.author || 'Untitled';
             
-            // Count unread messages (messages from others after user's last message)
+            // Count unread messages
             let unreadCount = 0;
             let userLastMessageIndex = -1;
             
-            // Find user's last message
             for (let i = messages.length - 1; i >= 0; i--) {
                 if (messages[i].user_id === this.currentUserId) {
                     userLastMessageIndex = i;
@@ -136,7 +132,6 @@ class ConversationsApp {
                 }
             }
             
-            // Count messages from others after user's last message
             if (userLastMessageIndex >= 0) {
                 for (let i = userLastMessageIndex + 1; i < messages.length; i++) {
                     if (messages[i].user_id !== this.currentUserId) {
@@ -144,7 +139,6 @@ class ConversationsApp {
                     }
                 }
             } else {
-                // User hasn't sent any messages, count all messages from others
                 unreadCount = messages.filter(m => m.user_id !== this.currentUserId).length;
             }
             
@@ -154,7 +148,7 @@ class ConversationsApp {
                 articlePrice: article.price,
                 articleImage: article.picture_url,
                 itemType: article.item_type,
-                role: role, // 'seller' or 'buyer'
+                role: role,
                 otherParticipants: Array.from(otherParticipants),
                 lastMessage: lastMessage,
                 lastMessageTime: lastMessage.timestamp,
@@ -199,11 +193,11 @@ class ConversationsApp {
         element.className = `conversation-item ${conversation.unreadCount > 0 ? 'unread' : ''}`;
         element.addEventListener('click', () => this.openChat(conversation));
         
-        const otherParticipantsText = conversation.role === 'seller' 
+        const otherParticipantName = conversation.role === 'seller' 
             ? (conversation.otherParticipants.length > 0 ? conversation.otherParticipants[0] : 'Unknown User')
             : conversation.sellerUsername;
             
-        const roleLabel = conversation.role === 'seller' ? 'Selling to' : 'Buying from';
+        const roleLabel = conversation.role === 'seller' ? 'Selling' : 'Buying';
         
         const lastMessageText = conversation.lastMessage.message.length > 50 
             ? conversation.lastMessage.message.substring(0, 50) + '...'
@@ -214,14 +208,14 @@ class ConversationsApp {
         
         element.innerHTML = `
             <div class="conversation-avatar">
-                ${otherParticipantsText.charAt(0).toUpperCase()}
+                ${otherParticipantName.charAt(0).toUpperCase()}
             </div>
             
             <div class="conversation-content">
                 <div class="conversation-header">
                     <div class="conversation-title">
-                        <span class="participant-name">${otherParticipantsText}</span>
-                        <span class="role-badge">${roleLabel}</span>
+                        <span class="participant-name">${otherParticipantName}</span>
+                        <span class="role-badge ${conversation.role}">${roleLabel}</span>
                     </div>
                     <div class="conversation-time">
                         ${this.formatTime(conversation.lastMessageTime)}
@@ -229,7 +223,7 @@ class ConversationsApp {
                 </div>
                 
                 <div class="conversation-item-info">
-                    <img src="${this.getItemImage(conversation)}" alt="Item" class="conversation-item-image">
+                    <span class="item-emoji">${this.getItemEmoji(conversation.itemType)}</span>
                     <div class="item-details">
                         <div class="item-title">${conversation.articleTitle}</div>
                         <div class="item-price">$${conversation.articlePrice.toFixed(2)}</div>
@@ -246,23 +240,22 @@ class ConversationsApp {
         return element;
     }
 
-    getItemImage(conversation) {
-        if (conversation.articleImage) {
-            return conversation.articleImage;
-        }
-        
+    getItemEmoji(itemType) {
         const emojis = {
             book: '📚',
             dvd: '🎬',
             cd: '💿'
         };
-        const emoji = emojis[conversation.itemType] || '📦';
-        return `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><rect width="40" height="40" fill="%23f0f0f0"/><text x="20" y="25" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="%23666">${emoji}</text></svg>`;
+        return emojis[itemType] || '📦';
     }
 
     openChat(conversation) {
-        // Navigate to chat page with appropriate parameters
-        const chatUrl = `chat.html?article=${conversation.articleId}&seller=${conversation.sellerId}`;
+        // Navigate to chat with proper parameters
+        const otherUser = conversation.role === 'seller' 
+            ? conversation.otherParticipants[0] 
+            : conversation.sellerUsername;
+            
+        const chatUrl = `chat.html?user=${encodeURIComponent(otherUser)}&articleId=${conversation.articleId}`;
         window.location.href = chatUrl;
     }
 
@@ -273,16 +266,12 @@ class ConversationsApp {
         const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
         
         if (diffDays === 0) {
-            // Today - show time
             return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         } else if (diffDays === 1) {
-            // Yesterday
             return 'Yesterday';
         } else if (diffDays < 7) {
-            // This week - show day
             return date.toLocaleDateString([], { weekday: 'short' });
         } else {
-            // Older - show date
             return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
         }
     }

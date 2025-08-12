@@ -1,4 +1,4 @@
-// article-details.js - Individual article page functionality with chat integration
+// article.js - Fixed version with proper chat integration
 
 class ArticleDetailsApp {
     constructor() {
@@ -32,7 +32,6 @@ class ArticleDetailsApp {
                 this.currentUsername = data.token_data.username;
             } else {
                 console.log('User not authenticated');
-                // User can still view articles but can't contact sellers
             }
         } catch (error) {
             console.error('Error getting current user:', error);
@@ -45,49 +44,33 @@ class ArticleDetailsApp {
     }
 
     setupEventListeners() {
-        // Retry button
         const retryBtn = document.getElementById('retryBtn');
         if (retryBtn) {
             retryBtn.addEventListener('click', () => this.loadArticleDetails());
         }
 
-        // Contact seller button - Updated to open chat
         const contactSellerBtn = document.getElementById('contactSellerBtn');
         if (contactSellerBtn) {
             contactSellerBtn.addEventListener('click', () => this.openChat());
         }
 
-        // Share article button
         const shareArticleBtn = document.getElementById('shareArticleBtn');
         if (shareArticleBtn) {
             shareArticleBtn.addEventListener('click', () => this.showShareModal());
         }
 
-        // Report article button
         const reportArticleBtn = document.getElementById('reportArticleBtn');
         if (reportArticleBtn) {
             reportArticleBtn.addEventListener('click', () => this.reportArticle());
         }
 
-        // Contact modal controls - Keep for backward compatibility
-        this.setupModalControls('contactModal', 'closeContactModal', 'closeContactModalBtn');
-        
-        // Share modal controls
         this.setupModalControls('shareModal', 'closeShareModal', 'closeShareModalBtn');
 
-        // Copy URL button
         const copyUrlBtn = document.getElementById('copyUrlBtn');
         if (copyUrlBtn) {
             copyUrlBtn.addEventListener('click', () => this.copyShareUrl());
         }
 
-        // Bookmark button
-        const bookmarkBtn = document.getElementById('bookmarkBtn');
-        if (bookmarkBtn) {
-            bookmarkBtn.addEventListener('click', () => this.bookmarkArticle());
-        }
-
-        // Share buttons
         const shareEmailBtn = document.getElementById('shareEmailBtn');
         const shareTwitterBtn = document.getElementById('shareTwitterBtn');
         const shareFacebookBtn = document.getElementById('shareFacebookBtn');
@@ -131,7 +114,6 @@ class ArticleDetailsApp {
         this.hideArticleDetails();
 
         try {
-            // First, try to get the specific article by ID from all articles
             const response = await fetch(`http://localhost:8000/api/articles`);
             
             if (!response.ok) {
@@ -141,7 +123,6 @@ class ArticleDetailsApp {
             const data = await response.json();
             const articles = data.articles || [];
             
-            // Find the specific article by ID
             this.article = articles.find(article => article.id == this.articleId);
             
             if (!this.article) {
@@ -165,69 +146,54 @@ class ArticleDetailsApp {
         const title = itemInfo?.title || itemInfo?.author || 'Untitled';
         const subtitle = this.getSubtitle(this.article, itemInfo);
 
-        // Update page title
         document.title = `${title} - Marketplace`;
         const pageTitle = document.getElementById('pageTitle');
         if (pageTitle) {
             pageTitle.textContent = `${this.getItemTypeEmoji(this.article.item_type)} ${title}`;
         }
 
-        // Article image
         const articleImage = document.getElementById('articleImage');
         if (articleImage) {
             articleImage.src = this.article.picture_url || this.getDefaultImage(this.article.item_type);
             articleImage.alt = title;
         }
 
-        // Sold badge
         const soldBadge = document.getElementById('soldBadge');
         if (soldBadge) {
             soldBadge.style.display = this.article.is_sold ? 'block' : 'none';
         }
 
-        // Article type badge
         const typeBadge = document.getElementById('articleTypeBadge');
         if (typeBadge) {
             typeBadge.textContent = this.article.item_type.toUpperCase();
             typeBadge.className = `article-type-badge ${this.article.item_type}`;
         }
 
-        // Title and subtitle
         const articleTitle = document.getElementById('articleTitle');
         const articleSubtitle = document.getElementById('articleSubtitle');
         if (articleTitle) articleTitle.textContent = title;
         if (articleSubtitle) articleSubtitle.textContent = subtitle;
 
-        // Price and status
         const articlePrice = document.getElementById('articlePrice');
         const articleStatus = document.getElementById('articleStatus');
         if (articlePrice) {
-            articlePrice.textContent = `${this.article.price.toFixed(2)}`;
+            articlePrice.textContent = `$${this.article.price.toFixed(2)}`;
         }
         if (articleStatus) {
             articleStatus.textContent = this.article.is_sold ? 'SOLD' : 'Available';
             articleStatus.className = `article-status ${this.article.is_sold ? 'sold' : 'available'}`;
         }
 
-        // Description
         const articleDescription = document.getElementById('articleDescription');
         if (articleDescription) {
             articleDescription.textContent = this.article.description || 'No description provided.';
         }
 
-        // Article details
         this.displayArticleDetailsGrid(itemInfo);
-
-        // Seller information
         this.displaySellerInfo();
-
-        // Article metadata
         this.displayArticleMetadata();
-
-        // Update contact button state
         this.updateContactButton();
 
-        // Setup share URL
         const shareUrl = document.getElementById('shareUrl');
         if (shareUrl) {
             shareUrl.value = window.location.href;
@@ -263,7 +229,6 @@ class ArticleDetailsApp {
         }
     }
 
-    // New method to open chat
     openChat() {
         if (!this.currentUserId) {
             alert('Please log in to contact the seller.');
@@ -280,8 +245,8 @@ class ArticleDetailsApp {
             return;
         }
 
-        // Open chat page with article and seller information
-        const chatUrl = `chat.html?article=${this.articleId}&seller=${this.article.user_id}`;
+        // Fixed: Pass the correct parameters to chat.html
+        const chatUrl = `chat.html?user=${encodeURIComponent(this.article.seller_username)}&articleId=${this.articleId}`;
         window.location.href = chatUrl;
     }
 
@@ -291,7 +256,6 @@ class ArticleDetailsApp {
 
         const details = [];
 
-        // Common details for all item types
         if (itemInfo.genre) {
             details.push(['Genre', itemInfo.genre.charAt(0).toUpperCase() + itemInfo.genre.slice(1)]);
         }
@@ -299,7 +263,6 @@ class ArticleDetailsApp {
             details.push(['Publication Date', this.formatDate(itemInfo.publication_date)]);
         }
 
-        // Item-specific details
         switch (this.article.item_type) {
             case 'book':
                 if (itemInfo.author) details.push(['Author', itemInfo.author]);
@@ -334,8 +297,6 @@ class ArticleDetailsApp {
             sellerInitial.textContent = this.article.seller_username.charAt(0).toUpperCase();
         }
         if (sellerJoinDate) {
-            // For now, we'll use the article creation date as a placeholder
-            // In a real app, you'd fetch user registration date
             sellerJoinDate.textContent = this.formatDate(this.article.created_at);
         }
     }
@@ -385,7 +346,7 @@ class ArticleDetailsApp {
             case 'dvd':
                 return 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600"><rect width="400" height="600" fill="%23f0f0f0"/><text x="200" y="300" text-anchor="middle" font-family="Arial, sans-serif" font-size="48" fill="%23666">🎬</text></svg>';
             case 'cd':
-                return 'data:image/svg+xml,<svg xmlns="http://www.w3.2000/svg" width="400" height="600" viewBox="0 0 400 600"><rect width="400" height="600" fill="%23f0f0f0"/><text x="200" y="300" text-anchor="middle" font-family="Arial, sans-serif" font-size="48" fill="%23666">💿</text></svg>';
+                return 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600"><rect width="400" height="600" fill="%23f0f0f0"/><text x="200" y="300" text-anchor="middle" font-family="Arial, sans-serif" font-size="48" fill="%23666">💿</text></svg>';
             default:
                 return 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600"><rect width="400" height="600" fill="%23f0f0f0"/><text x="200" y="300" text-anchor="middle" font-family="Arial, sans-serif" font-size="32" fill="%23666">No Image</text></svg>';
         }
@@ -398,12 +359,6 @@ class ArticleDetailsApp {
             month: 'long',
             day: 'numeric'
         });
-    }
-
-    // Modal management - Keep for backward compatibility
-    showContactModal() {
-        // Redirect to chat instead
-        this.openChat();
     }
 
     showShareModal() {
@@ -424,24 +379,17 @@ class ArticleDetailsApp {
         }
     }
 
-    // Action handlers
     reportArticle() {
         alert('Report functionality coming soon!\nThis will allow you to report inappropriate content.');
-    }
-
-    bookmarkArticle() {
-        // In a real app, this would save to user's bookmarks
-        alert('Bookmark functionality coming soon!\nThis article will be saved to your bookmarks.');
     }
 
     copyShareUrl() {
         const shareUrl = document.getElementById('shareUrl');
         if (shareUrl) {
             shareUrl.select();
-            shareUrl.setSelectionRange(0, 99999); // For mobile devices
+            shareUrl.setSelectionRange(0, 99999);
             document.execCommand('copy');
             
-            // Visual feedback
             const copyBtn = document.getElementById('copyUrlBtn');
             if (copyBtn) {
                 const originalText = copyBtn.textContent;
@@ -459,7 +407,7 @@ class ArticleDetailsApp {
         const itemInfo = this.article.book_info || this.article.dvd_info || this.article.cd_info || this.article.item_info;
         const title = itemInfo?.title || itemInfo?.author || 'Untitled';
         const subject = encodeURIComponent(`Check out this ${this.article.item_type}: ${title}`);
-        const body = encodeURIComponent(`I found this interesting ${this.article.item_type} on the marketplace:\n\n${title}\nPrice: ${this.article.price.toFixed(2)}\n\n${window.location.href}`);
+        const body = encodeURIComponent(`I found this interesting ${this.article.item_type} on the marketplace:\n\n${title}\nPrice: $${this.article.price.toFixed(2)}\n\n${window.location.href}`);
         
         window.open(`mailto:?subject=${subject}&body=${body}`);
     }
@@ -469,7 +417,7 @@ class ArticleDetailsApp {
         
         const itemInfo = this.article.book_info || this.article.dvd_info || this.article.cd_info || this.article.item_info;
         const title = itemInfo?.title || itemInfo?.author || 'Untitled';
-        const text = encodeURIComponent(`Check out this ${this.article.item_type}: ${title} for ${this.article.price.toFixed(2)}`);
+        const text = encodeURIComponent(`Check out this ${this.article.item_type}: ${title} for $${this.article.price.toFixed(2)}`);
         const url = encodeURIComponent(window.location.href);
         
         window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank');
@@ -480,7 +428,6 @@ class ArticleDetailsApp {
         window.open(`https://www.facebook.com/sharer/sharer.php?u=${url}`, '_blank');
     }
 
-    // UI state management
     showLoading() {
         const loadingContainer = document.getElementById('loadingContainer');
         if (loadingContainer) {

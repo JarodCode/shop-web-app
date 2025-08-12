@@ -1,3 +1,5 @@
+// chat.js - Fixed version with proper WebSocket handling
+
 class ChatApp {
     constructor() {
         this.ws = null;
@@ -5,10 +7,11 @@ class ChatApp {
         this.otherUsername = null;
         this.currentUserId = null;
         this.currentUsername = null;
-        this.articleId = null; // Add this property
+        this.articleId = null;
         this.messages = [];
         this.typingTimeout = null;
         this.isTyping = false;
+        this.chatRoomId = null;
         
         this.init();
     }
@@ -22,14 +25,13 @@ class ChatApp {
     getParametersFromUrl() {
         const urlParams = new URLSearchParams(window.location.search);
         this.otherUsername = urlParams.get('user');
-        this.articleId = urlParams.get('articleId'); // Add this line to get articleId from URL
+        this.articleId = urlParams.get('articleId');
         
         console.log('URL parameters:', {
             user: this.otherUsername,
             articleId: this.articleId
         });
         
-        // Only require the username parameter
         if (!this.otherUsername) {
             alert('Invalid chat parameters - missing user. Please return to the marketplace and try again.');
             this.goBack();
@@ -96,29 +98,25 @@ class ChatApp {
         document.getElementById('chatPartnerName').textContent = this.otherUsername;
         document.getElementById('chatPartnerAvatar').textContent = this.otherUsername.charAt(0).toUpperCase();
         
-        // Display subtitle based on whether we have an article ID
         const subtitle = this.articleId 
             ? `Chat about Article #${this.articleId}` 
-            : `Chat with ${this.otherUsername}`;
+            : `Direct chat with ${this.otherUsername}`;
         document.getElementById('chatSubtitle').textContent = subtitle;
     }
 
     connectWebSocket() {
         try {
-            // Create WebSocket URL - use existing endpoint structure
-            let chatRoomId;
+            // Determine chat room ID
             if (this.articleId) {
-                // If we have an article ID, use it as the chat room
-                chatRoomId = this.articleId;
+                // Article-based chat - use article ID as room
+                this.chatRoomId = this.articleId;
             } else {
-                // If no article ID, create a consistent room ID for direct chat
-                // Use sorted user identifiers to ensure both users connect to the same room
-                // Mix current user ID and other username to create a unique but consistent room
-                const userIds = [this.currentUserId.toString(), this.otherUsername].sort();
-                chatRoomId = `direct_${userIds.join('_')}`;
+                // Direct chat - create consistent room ID
+                const userIds = [this.currentUsername, this.otherUsername].sort();
+                this.chatRoomId = `direct_${userIds.join('_')}`;
             }
             
-            const wsUrl = `ws://localhost:8000/ws/chat/${chatRoomId}?userId=${this.currentUserId}`;
+            const wsUrl = `ws://localhost:8000/ws/chat/${this.chatRoomId}?userId=${this.currentUserId}`;
             console.log('Connecting to WebSocket:', wsUrl);
             
             this.ws = new WebSocket(wsUrl);
@@ -128,18 +126,17 @@ class ChatApp {
                 this.updateConnectionStatus('connected');
                 console.log('Connected to chat server');
                 
-                // Send join message with appropriate parameters
+                // Send join message
                 const joinMessage = {
                     type: 'join',
                     userId: this.currentUserId,
                     username: this.currentUsername,
                     targetUser: this.otherUsername,
-                    chatRoomId: chatRoomId
+                    chatRoomId: this.chatRoomId
                 };
                 
-                // Add articleId if available (for backward compatibility)
                 if (this.articleId) {
-                    joinMessage.articleId = this.articleId;
+                    joinMessage.articleId = parseInt(this.articleId);
                 }
                 
                 this.sendWebSocketMessage(joinMessage);
@@ -154,7 +151,6 @@ class ChatApp {
                 this.updateConnectionStatus('disconnected');
                 console.log('Disconnected from chat server. Code:', event.code, 'Reason:', event.reason);
                 
-                // Only attempt reconnection if it wasn't a normal close and we're not already trying to reconnect
                 if (event.code !== 1000 && event.code !== 1001) {
                     setTimeout(() => {
                         if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
@@ -248,19 +244,18 @@ class ChatApp {
             return;
         }
 
-        // Prepare message data
         const messageData = {
             type: 'message',
             userId: this.currentUserId,
             username: this.currentUsername,
             targetUser: this.otherUsername,
             message: message,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            chatRoomId: this.chatRoomId
         };
 
-        // Add articleId if available
         if (this.articleId) {
-            messageData.articleId = this.articleId;
+            messageData.articleId = parseInt(this.articleId);
         }
 
         const success = this.sendWebSocketMessage(messageData);
@@ -312,15 +307,19 @@ class ChatApp {
         const messagesContainer = document.getElementById('messagesContainer');
         const emptyChat = document.getElementById('emptyChat');
 
-        // Clear existing messages first
         messagesContainer.innerHTML = '';
 
-        messages.forEach(message => {
-            this.addMessage(message);
-        });
-
-        if (messages.length > 0 && emptyChat) {
-            emptyChat.style.display = 'none';
+        if (messages.length === 0) {
+            if (emptyChat) {
+                emptyChat.style.display = 'block';
+            }
+        } else {
+            if (emptyChat) {
+                emptyChat.style.display = 'none';
+            }
+            messages.forEach(message => {
+                this.addMessage(message);
+            });
         }
     }
 
@@ -332,12 +331,12 @@ class ChatApp {
                 type: 'typing',
                 userId: this.currentUserId,
                 username: this.currentUsername,
-                targetUser: this.otherUsername
+                targetUser: this.otherUsername,
+                chatRoomId: this.chatRoomId
             };
             
-            // Add articleId if available
             if (this.articleId) {
-                typingData.articleId = this.articleId;
+                typingData.articleId = parseInt(this.articleId);
             }
             
             this.sendWebSocketMessage(typingData);
@@ -360,12 +359,12 @@ class ChatApp {
                 type: 'stop_typing',
                 userId: this.currentUserId,
                 username: this.currentUsername,
-                targetUser: this.otherUsername
+                targetUser: this.otherUsername,
+                chatRoomId: this.chatRoomId
             };
             
-            // Add articleId if available
             if (this.articleId) {
-                stopTypingData.articleId = this.articleId;
+                stopTypingData.articleId = parseInt(this.articleId);
             }
             
             this.sendWebSocketMessage(stopTypingData);
@@ -448,7 +447,12 @@ class ChatApp {
     }
 
     goBack() {
-        window.location.href = 'marketplace.html';
+        // Go back to previous page or marketplace
+        if (document.referrer && document.referrer.includes('article.html')) {
+            window.history.back();
+        } else {
+            window.location.href = 'marketplace.html';
+        }
     }
 }
 

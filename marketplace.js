@@ -1,4 +1,4 @@
-// marketplace.js - Fixed version with proper API integration
+// marketplace.js - Fixed version with correct API port
 
 class MarketplaceApp {
     constructor() {
@@ -9,6 +9,7 @@ class MarketplaceApp {
         this.searchTerm = '';
         this.articles = [];
         this.genres = [];
+        this.API_BASE_URL = 'http://localhost:8000'; // Fixed: Use correct API port
         
         this.init();
     }
@@ -71,7 +72,10 @@ class MarketplaceApp {
         // Add item button
         const addItemBtn = document.getElementById('addItemBtn');
         if (addItemBtn) {
-            addItemBtn.addEventListener('click', () => this.showAddItemModal());
+            addItemBtn.addEventListener('click', () => {
+                // Navigate to create article page
+                window.location.href = 'create_article.html';
+            });
         }
 
         // Modal controls
@@ -182,9 +186,9 @@ class MarketplaceApp {
                 }
             }
 
-            console.log('Fetching from endpoint:', `http://localhost:8000${endpoint}`);
+            console.log('Fetching from endpoint:', `${this.API_BASE_URL}${endpoint}`);
 
-            const response = await fetch(`http://localhost:8000${endpoint}`, {
+            const response = await fetch(`${this.API_BASE_URL}${endpoint}`, {
                 credentials: 'include', // Include cookies for authentication
                 headers: {
                     'Content-Type': 'application/json'
@@ -475,9 +479,9 @@ class MarketplaceApp {
     }
 
     contactSeller(sellerUsername, articleId) {
-        // Navigate to chat page with seller information only
-        if (sellerUsername) {
-            window.location.href = `chat.html?user=${encodeURIComponent(sellerUsername)}`;
+        // Navigate to chat page with seller information and article ID
+        if (sellerUsername && articleId) {
+            window.location.href = `chat.html?user=${encodeURIComponent(sellerUsername)}&articleId=${articleId}`;
         } else {
             alert('Unable to start chat. Missing seller information.');
         }
@@ -532,19 +536,6 @@ class MarketplaceApp {
         if (modal) {
             modal.style.display = 'none';
         }
-    }
-
-    showAddItemModal() {
-        this.showModal('Add New Item', `
-            <p>Add new item functionality coming soon!</p>
-            <p>This will allow you to:</p>
-            <ul>
-                <li>Create new books, DVDs, or CDs</li>
-                <li>Add them to the marketplace</li>
-                <li>Set prices and descriptions</li>
-                <li>Upload images</li>
-            </ul>
-        `);
     }
 
     showLoading() {

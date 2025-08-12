@@ -127,31 +127,44 @@ async function initializeDatabase() {
 }
 
 async function initializeChatTables() {
-    try {
-        // Create chat messages table
-        await client.execute(`
-            CREATE TABLE IF NOT EXISTS chat_messages (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                article_id INT NOT NULL,
-                user_id INT NOT NULL,
-                username VARCHAR(50) NOT NULL,
-                message TEXT NOT NULL,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                INDEX idx_article_id (article_id),
-                INDEX idx_user_id (user_id),
-                INDEX idx_timestamp (timestamp)
-            )
-        `);
+  try {
+      // Drop existing table if you need to recreate it (optional - remove in production)
+      // await client.execute(`DROP TABLE IF EXISTS chat_messages`);
+      
+      // Create chat messages table with proper structure
+      await client.execute(`
+          CREATE TABLE IF NOT EXISTS chat_messages (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              article_id INT NOT NULL,
+              user_id INT NOT NULL,
+              username VARCHAR(50) NOT NULL,
+              message TEXT NOT NULL,
+              timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE,
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+              INDEX idx_article_id (article_id),
+              INDEX idx_user_id (user_id),
+              INDEX idx_timestamp (timestamp)
+          )
+      `);
 
-        console.log("✅ Chat tables initialized");
-    } catch (error) {
-        console.error("❌ Chat tables initialization error:", error.message);
-        throw error;
-    }
+      console.log("✅ Chat tables initialized successfully");
+      
+      // Verify the table was created
+      const tables = await client.query("SHOW TABLES LIKE 'chat_messages'");
+      if (tables.length > 0) {
+          console.log("✅ chat_messages table exists");
+          
+          // Check table structure
+          const columns = await client.query("SHOW COLUMNS FROM chat_messages");
+          console.log("📋 chat_messages columns:", columns.map((col: any) => col.Field).join(", "));
+      }
+  } catch (error) {
+      console.error("❌ Chat tables initialization error:", error.message);
+      throw error;
+  }
 }
 
 // Connection related variables
@@ -239,21 +252,27 @@ interface WebSocketClient {
 
 class ChatManager {
   private clients: Map<string, WebSocketClient> = new Map();
-  private rooms: Map<string, Set<string>> = new Map(); // Changed to string keys
+  private rooms: Map<string, Set<string>> = new Map();
 
   addClient(clientId: string, client: WebSocketClient) {
       this.clients.set(clientId, client);
       
-      // Use chatRoomId or fallback to articleId
       const roomKey = client.chatRoomId || client.articleId.toString();
       
-      // Add to room
       if (!this.rooms.has(roomKey)) {
           this.rooms.set(roomKey, new Set());
       }
       this.rooms.get(roomKey)!.add(clientId);
 
-      console.log(`📞 User ${client.username} joined room ${roomKey}`);
+      console.log(`📞 User ${client.username} (${clientId}) joined room ${roomKey}`);
+      console.log(`📊 Room ${roomKey} now has ${this.rooms.get(roomKey)!.size} users`);
+      
+      // Log all clients in the room
+      const roomClients = Array.from(this.rooms.get(roomKey)!).map(id => {
+          const c = this.clients.get(id);
+          return c ? `${c.username}(${c.userId})` : 'unknown';
+      });
+      console.log(`👥 Users in room ${roomKey}: ${roomClients.join(', ')}`);
   }
 
   removeClient(clientId: string) {
@@ -261,63 +280,91 @@ class ChatManager {
       if (client) {
           const roomKey = client.chatRoomId || client.articleId.toString();
           
-          // Remove from room
           const room = this.rooms.get(roomKey);
           if (room) {
               room.delete(clientId);
               if (room.size === 0) {
                   this.rooms.delete(roomKey);
               }
+              console.log(`📊 Room ${roomKey} now has ${room.size} users`);
           }
           
           this.clients.delete(clientId);
-          console.log(`📞 User ${client.username} left room ${roomKey}`);
+          console.log(`📞 User ${client.username} (${clientId}) left room ${roomKey}`);
       }
   }
 
   broadcastToRoom(roomKey: string | number, message: any, excludeClientId?: string) {
       const roomKeyStr = roomKey.toString();
       const room = this.rooms.get(roomKeyStr);
-      if (!room) return;
+      
+      console.log(`📢 Broadcasting to room ${roomKeyStr}: ${message.type}`);
+      console.log(`📊 Room has ${room ? room.size : 0} clients`);
+      
+      if (!room || room.size === 0) {
+          console.log(`⚠️ No clients in room ${roomKeyStr}`);
+          return;
+      }
 
       const messageStr = JSON.stringify(message);
+      let sentCount = 0;
       
       room.forEach(clientId => {
-          if (clientId === excludeClientId) return;
+          if (clientId === excludeClientId) {
+              console.log(`⏭️ Skipping sender ${clientId}`);
+              return;
+          }
           
           const client = this.clients.get(clientId);
           if (client && client.ws.readyState === WebSocket.OPEN) {
               try {
                   client.ws.send(messageStr);
+                  sentCount++;
+                  console.log(`✉️ Sent to ${client.username} (${clientId})`);
               } catch (error) {
-                  console.error('Error sending message to client:', error);
+                  console.error(`❌ Error sending to ${clientId}:`, error);
                   this.removeClient(clientId);
               }
+          } else {
+              console.log(`⚠️ Client ${clientId} not ready or disconnected`);
           }
       });
+      
+      console.log(`📢 Broadcast complete: sent to ${sentCount} clients`);
   }
 
   async saveMessage(message: ChatMessage): Promise<number> {
       try {
+          console.log(`💾 Attempting to save message:`, message);
+          
+          // Ensure timestamp is properly formatted for MySQL
+          const formattedTimestamp = new Date(message.timestamp).toISOString().slice(0, 19).replace('T', ' ');
+          
           const result = await client.execute(
               "INSERT INTO chat_messages (article_id, user_id, username, message, timestamp) VALUES (?, ?, ?, ?, ?)",
-              [message.article_id, message.user_id, message.username, message.message, message.timestamp]
+              [message.article_id, message.user_id, message.username, message.message, formattedTimestamp]
           );
-          return result.lastInsertId as number;
+          
+          const messageId = result.lastInsertId as number;
+          console.log(`✅ Message saved with ID: ${messageId}`);
+          return messageId;
       } catch (error) {
-          console.error('Error saving message:', error);
+          console.error('❌ Error saving message:', error);
+          console.error('Message data:', message);
           throw error;
       }
   }
 
   async getMessageHistory(articleId: number, limit: number = 50): Promise<ChatMessage[]> {
       try {
+          console.log(`📜 Loading message history for article ${articleId} (limit: ${limit})`);
+          
           const messages = await client.query(
               "SELECT * FROM chat_messages WHERE article_id = ? ORDER BY timestamp DESC LIMIT ?",
               [articleId, limit]
           );
           
-          return messages.reverse().map((msg: any) => ({
+          const formattedMessages = messages.reverse().map((msg: any) => ({
               id: msg.id,
               article_id: msg.article_id,
               user_id: msg.user_id,
@@ -325,8 +372,11 @@ class ChatManager {
               message: msg.message,
               timestamp: msg.timestamp
           }));
+          
+          console.log(`📜 Loaded ${formattedMessages.length} messages`);
+          return formattedMessages;
       } catch (error) {
-          console.error('Error getting message history:', error);
+          console.error('❌ Error getting message history:', error);
           return [];
       }
   }
@@ -1253,61 +1303,63 @@ async function handleChatWebSocket(ctx: any) {
                       }));
                       break;
                       
-                  case 'message':
-                      if (data.message && data.message.trim()) {
-                          if (isDirectChat) {
-                              // For direct chats, just broadcast without saving to database
-                              const message = {
-                                  type: 'message',
-                                  userId,
-                                  username,
-                                  message: data.message.trim(),
-                                  timestamp: new Date().toISOString(),
-                                  chatRoomId,
-                                  isDirectChat: true
-                              };
-
-                              console.log(`💬 Broadcasting direct message from ${username} in room ${chatRoomId}`);
-
-                              // Broadcast message to all clients in the room
-                              chatManager.broadcastToRoom(chatRoomId, message);
-                              
-                              // Also send back to sender for confirmation
-                              socket.send(JSON.stringify(message));
-                          } else if (articleId) {
-                              // Article-based chat - save to database
-                              const message: ChatMessage = {
-                                  article_id: articleId,
-                                  user_id: userId,
-                                  username,
-                                  message: data.message.trim(),
-                                  timestamp: new Date().toISOString()
-                              };
-
-                              console.log(`💾 Saving message from ${username}:`, message.message);
-
-                              try {
-                                  const messageId = await chatManager.saveMessage(message);
-                                  message.id = messageId;
-
-                                  console.log(`💾 Saved message ${messageId} from ${username}`);
-
-                                  // Broadcast message to all clients in the room
-                                  chatManager.broadcastToRoom(chatRoomId, {
-                                      type: 'message',
-                                      ...message,
-                                      isDirectChat: false
-                                  });
-                              } catch (error) {
-                                  console.error('❌ Error saving message:', error);
-                                  socket.send(JSON.stringify({
-                                      type: 'error',
-                                      message: 'Failed to save message'
-                                  }));
-                              }
-                          }
-                      }
-                      break;
+                      case 'message':
+                        if (data.message && data.message.trim()) {
+                            if (isDirectChat) {
+                                // For direct chats, broadcast without saving to database
+                                const message = {
+                                    type: 'message',
+                                    userId,
+                                    username,
+                                    message: data.message.trim(),
+                                    timestamp: new Date().toISOString(),
+                                    chatRoomId,
+                                    isDirectChat: true
+                                };
+                    
+                                console.log(`💬 Broadcasting direct message from ${username} in room ${chatRoomId}`);
+                    
+                                // Send to all clients in room INCLUDING sender
+                                chatManager.broadcastToRoom(chatRoomId, message);
+                                
+                            } else if (articleId) {
+                                // Article-based chat - save to database
+                                const message: ChatMessage = {
+                                    article_id: articleId,
+                                    user_id: userId,
+                                    username,
+                                    message: data.message.trim(),
+                                    timestamp: new Date().toISOString()
+                                };
+                    
+                                console.log(`💾 Saving message from ${username}:`, message.message);
+                    
+                                try {
+                                    const messageId = await chatManager.saveMessage(message);
+                                    message.id = messageId;
+                    
+                                    console.log(`💾 Saved message ${messageId} from ${username}`);
+                    
+                                    // Broadcast to ALL clients in room INCLUDING sender
+                                    const broadcastMessage = {
+                                        type: 'message',
+                                        ...message,
+                                        userId: message.user_id, // Ensure userId is included
+                                        isDirectChat: false
+                                    };
+                                    
+                                    chatManager.broadcastToRoom(chatRoomId, broadcastMessage);
+                                    
+                                } catch (error) {
+                                    console.error('❌ Error saving message:', error);
+                                    socket.send(JSON.stringify({
+                                        type: 'error',
+                                        message: 'Failed to save message. ' + error.message
+                                    }));
+                                }
+                            }
+                        }
+                        break;
 
                   case 'typing':
                       chatManager.broadcastToRoom(chatRoomId, {
@@ -1477,58 +1529,73 @@ app.use(async (ctx, next) => {
 // Replace the existing WebSocket middleware in your main.ts with this:
 
 app.use(async (ctx, next) => {
-  console.log(`📍 Checking WebSocket route: ${ctx.request.url.pathname}`);
+  const path = ctx.request.url.pathname;
   
-  // Handle test WebSocket first
-  if (ctx.request.url.pathname === '/ws/test') {
-      console.log('🧪 Test WebSocket request detected');
+  // Handle chat WebSocket connections
+  if (path.startsWith('/ws/chat/')) {
+    console.log('🔌 Chat WebSocket request detected:', path);
+    
+    const upgrade = ctx.request.headers.get("upgrade");
+    if (upgrade?.toLowerCase() !== 'websocket') {
+      console.log('❌ Not a WebSocket upgrade request');
+      ctx.response.status = 400;
+      ctx.response.body = { error: 'Expected WebSocket upgrade' };
+      return;
+    }
+    
+    await handleChatWebSocket(ctx);
+    return; // Don't call next() for WebSocket routes
+  }
+  
+  // Handle test WebSocket
+  if (path === '/ws/test') {
+    console.log('🧪 Test WebSocket request detected');
+    
+    const upgrade = ctx.request.headers.get("upgrade");
+    if (upgrade?.toLowerCase() !== 'websocket') {
+      console.log('❌ Not a WebSocket upgrade request');
+      ctx.response.status = 400;
+      ctx.response.body = { error: 'Expected WebSocket upgrade' };
+      return;
+    }
+    
+    try {
+      const socket = ctx.upgrade();
       
-      const upgrade = ctx.request.headers.get("upgrade");
-      if (upgrade?.toLowerCase() !== 'websocket') {
-          console.log('❌ Not a WebSocket upgrade request');
-          ctx.response.status = 400;
-          ctx.response.body = { error: 'Expected WebSocket upgrade' };
-          return;
-      }
+      socket.onopen = () => {
+        console.log("🧪 Test WebSocket opened");
+        socket.send(JSON.stringify({ type: 'connected', message: 'Test WebSocket connected successfully' }));
+      };
       
-      try {
-          // Use Oak's WebSocket upgrade - this is the key fix
-          const socket = ctx.upgrade();
-          
-          socket.onopen = () => {
-              console.log("🧪 Test WebSocket opened");
-              socket.send(JSON.stringify({ type: 'connected', message: 'Test WebSocket connected successfully' }));
-          };
-          
-          socket.onmessage = (event) => {
-              console.log("🧪 Test WebSocket received:", event.data);
-              try {
-                  const data = JSON.parse(event.data);
-                  socket.send(JSON.stringify({ 
-                      type: 'echo', 
-                      original: data,
-                      timestamp: new Date().toISOString()
-                  }));
-              } catch (e) {
-                  socket.send(JSON.stringify({ type: 'error', message: 'Invalid JSON' }));
-              }
-          };
-          
-          socket.onclose = (event) => {
-              console.log("🧪 Test WebSocket closed:", event.code, event.reason);
-          };
-          
-          socket.onerror = (error) => {
-              console.error("🧪 Test WebSocket error:", error);
-          };
-          
-          return; // Important: return here, don't call next()
-      } catch (error) {
-          console.error('❌ Test WebSocket error:', error);
-          ctx.response.status = 500;
-          ctx.response.body = { error: 'Test WebSocket failed', details: error.message };
-          return;
-      }
+      socket.onmessage = (event) => {
+        console.log("🧪 Test WebSocket received:", event.data);
+        try {
+          const data = JSON.parse(event.data);
+          socket.send(JSON.stringify({ 
+            type: 'echo', 
+            original: data,
+            timestamp: new Date().toISOString()
+          }));
+        } catch (e) {
+          socket.send(JSON.stringify({ type: 'error', message: 'Invalid JSON' }));
+        }
+      };
+      
+      socket.onclose = (event) => {
+        console.log("🧪 Test WebSocket closed:", event.code, event.reason);
+      };
+      
+      socket.onerror = (error) => {
+        console.error("🧪 Test WebSocket error:", error);
+      };
+      
+      return;
+    } catch (error) {
+      console.error('❌ Test WebSocket error:', error);
+      ctx.response.status = 500;
+      ctx.response.body = { error: 'Test WebSocket failed', details: error.message };
+      return;
+    }
   }
   
   await next();
