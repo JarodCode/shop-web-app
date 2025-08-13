@@ -1,4 +1,4 @@
-// conversations.js - Fixed version with proper conversation tracking
+// conversations.js - Updated to show all conversations with users
 
 class ConversationsApp {
     constructor() {
@@ -48,30 +48,132 @@ class ConversationsApp {
         try {
             this.showLoading();
             
-            // Get all articles to build conversation list
+            // Get all messages involving the current user
+            const response = await fetch(`http://localhost:8000/api/users/${this.currentUserId}/conversations`, {
+                credentials: 'include'
+            });
+            
+            if (!response.ok) {
+                // If endpoint doesn't exist, fall back to the old method
+                await this.loadConversationsOldMethod();
+                return;
+            }
+            
+            const data = await response.json();
+            this.conversations = data.conversations || [];
+            
+            // Sort by last message time
+            this.conversations.sort((a, b) => new Date(b.lastMessageTime) - new Date(a.lastMessageTime));
+            
+            this.displayConversations();
+            this.hideLoading();
+            
+        } catch (error) {
+            console.error('Error loading conversations:', error);
+            // Fall back to old method
+            await this.loadConversationsOldMethod();
+        }
+    }
+
+    async loadConversationsOldMethod() {
+        try {
+            // Get all articles
             const articlesResponse = await fetch('http://localhost:8000/api/articles');
             if (!articlesResponse.ok) throw new Error('Failed to load articles');
             
             const articlesData = await articlesResponse.json();
             const articles = articlesData.articles;
             
-            // Build conversations list
-            const conversationPromises = [];
+            // Create a map to store conversations by user
+            const conversationMap = new Map();
             
-            // For articles owned by current user
-            const userArticles = articles.filter(article => article.user_id === this.currentUserId);
-            for (const article of userArticles) {
-                conversationPromises.push(this.getArticleConversation(article, 'seller'));
+            // Process each article
+            for (const article of articles) {
+                const messages = await this.getArticleMessages(article.id);
+                if (!messages || messages.length === 0) continue;
+                
+                // Group messages by conversation partner
+                for (const message of messages) {
+                    let otherUser = null;
+                    let role = null;
+                    
+                    // Determine the other user and role
+                    if (article.user_id === this.currentUserId) {
+                        // Current user is the seller
+                        if (message.user_id !== this.currentUserId) {
+                            otherUser = {
+                                id: message.user_id,
+                                username: message.username
+                            };
+                            role = 'seller';
+                        }
+                    } else if (message.user_id === this.currentUserId) {
+                        // Current user sent a message to this article (as buyer)
+                        otherUser = {
+                            id: article.user_id,
+                            username: article.seller_username
+                        };
+                        role = 'buyer';
+                    }
+                    
+                    if (otherUser) {
+                        const conversationKey = `${otherUser.username}_${article.id}`;
+                        
+                        if (!conversationMap.has(conversationKey)) {
+                            conversationMap.set(conversationKey, {
+                                otherUser: otherUser,
+                                articleId: article.id,
+                                articleTitle: this.getArticleTitle(article),
+                                articlePrice: article.price,
+                                articleImage: article.picture_url,
+                                itemType: article.item_type,
+                                role: role,
+                                messages: [],
+                                lastMessage: null,
+                                lastMessageTime: null,
+                                unreadCount: 0
+                            });
+                        }
+                        
+                        const conv = conversationMap.get(conversationKey);
+                        conv.messages.push(message);
+                    }
+                }
             }
             
-            // For articles where user has sent messages
-            const otherArticles = articles.filter(article => article.user_id !== this.currentUserId);
-            for (const article of otherArticles) {
-                conversationPromises.push(this.getArticleConversation(article, 'buyer'));
+            // Process conversations to get last message and unread count
+            this.conversations = [];
+            for (const [key, conv] of conversationMap) {
+                if (conv.messages.length > 0) {
+                    // Sort messages by time
+                    conv.messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                    
+                    // Get last message
+                    conv.lastMessage = conv.messages[conv.messages.length - 1];
+                    conv.lastMessageTime = conv.lastMessage.timestamp;
+                    
+                    // Count unread messages
+                    let lastUserMessageIndex = -1;
+                    for (let i = conv.messages.length - 1; i >= 0; i--) {
+                        if (conv.messages[i].user_id === this.currentUserId) {
+                            lastUserMessageIndex = i;
+                            break;
+                        }
+                    }
+                    
+                    if (lastUserMessageIndex >= 0) {
+                        for (let i = lastUserMessageIndex + 1; i < conv.messages.length; i++) {
+                            if (conv.messages[i].user_id !== this.currentUserId) {
+                                conv.unreadCount++;
+                            }
+                        }
+                    } else {
+                        conv.unreadCount = conv.messages.filter(m => m.user_id !== this.currentUserId).length;
+                    }
+                    
+                    this.conversations.push(conv);
+                }
             }
-            
-            const conversationResults = await Promise.all(conversationPromises);
-            this.conversations = conversationResults.filter(conv => conv !== null);
             
             // Sort by last message time
             this.conversations.sort((a, b) => new Date(b.lastMessageTime) - new Date(a.lastMessageTime));
@@ -85,83 +187,26 @@ class ConversationsApp {
         }
     }
 
-    async getArticleConversation(article, role) {
+    async getArticleMessages(articleId) {
         try {
-            const response = await fetch(`http://localhost:8000/api/articles/${article.id}/messages`, {
+            const response = await fetch(`http://localhost:8000/api/articles/${articleId}/messages`, {
                 credentials: 'include'
             });
             
             if (!response.ok) return null;
             
             const data = await response.json();
-            const messages = data.messages || [];
-            
-            if (messages.length === 0) return null;
-            
-            // Check if user is involved in this conversation
-            let hasUserMessages = false;
-            let otherParticipants = new Set();
-            
-            for (const message of messages) {
-                if (role === 'seller' && message.user_id !== this.currentUserId) {
-                    hasUserMessages = true;
-                    otherParticipants.add(message.username);
-                } else if (role === 'buyer' && message.user_id === this.currentUserId) {
-                    hasUserMessages = true;
-                }
-                
-                if (message.user_id !== this.currentUserId) {
-                    otherParticipants.add(message.username);
-                }
-            }
-            
-            if (!hasUserMessages) return null;
-            
-            const lastMessage = messages[messages.length - 1];
-            const itemInfo = article.book_info || article.dvd_info || article.cd_info || article.item_info;
-            const title = itemInfo?.title || itemInfo?.author || 'Untitled';
-            
-            // Count unread messages
-            let unreadCount = 0;
-            let userLastMessageIndex = -1;
-            
-            for (let i = messages.length - 1; i >= 0; i--) {
-                if (messages[i].user_id === this.currentUserId) {
-                    userLastMessageIndex = i;
-                    break;
-                }
-            }
-            
-            if (userLastMessageIndex >= 0) {
-                for (let i = userLastMessageIndex + 1; i < messages.length; i++) {
-                    if (messages[i].user_id !== this.currentUserId) {
-                        unreadCount++;
-                    }
-                }
-            } else {
-                unreadCount = messages.filter(m => m.user_id !== this.currentUserId).length;
-            }
-            
-            return {
-                articleId: article.id,
-                articleTitle: title,
-                articlePrice: article.price,
-                articleImage: article.picture_url,
-                itemType: article.item_type,
-                role: role,
-                otherParticipants: Array.from(otherParticipants),
-                lastMessage: lastMessage,
-                lastMessageTime: lastMessage.timestamp,
-                messageCount: messages.length,
-                unreadCount: unreadCount,
-                sellerId: article.user_id,
-                sellerUsername: article.seller_username
-            };
+            return data.messages || [];
             
         } catch (error) {
-            console.error(`Error getting conversation for article ${article.id}:`, error);
+            console.error(`Error getting messages for article ${articleId}:`, error);
             return null;
         }
+    }
+
+    getArticleTitle(article) {
+        const itemInfo = article.book_info || article.dvd_info || article.cd_info || article.item_info;
+        return itemInfo?.title || itemInfo?.author || 'Untitled';
     }
 
     displayConversations() {
@@ -182,62 +227,125 @@ class ConversationsApp {
         
         conversationsList.innerHTML = '';
         
-        this.conversations.forEach(conversation => {
-            const conversationElement = this.createConversationElement(conversation);
+        // Group conversations by user (combine multiple article conversations with same user)
+        const userConversations = new Map();
+        
+        for (const conv of this.conversations) {
+            const userKey = conv.otherUser.username;
+            
+            if (!userConversations.has(userKey)) {
+                userConversations.set(userKey, {
+                    otherUser: conv.otherUser,
+                    conversations: [],
+                    lastMessage: null,
+                    lastMessageTime: null,
+                    totalUnread: 0
+                });
+            }
+            
+            const userConv = userConversations.get(userKey);
+            userConv.conversations.push(conv);
+            
+            // Update last message if this conversation is more recent
+            if (!userConv.lastMessageTime || new Date(conv.lastMessageTime) > new Date(userConv.lastMessageTime)) {
+                userConv.lastMessage = conv.lastMessage;
+                userConv.lastMessageTime = conv.lastMessageTime;
+                userConv.lastArticle = {
+                    id: conv.articleId,
+                    title: conv.articleTitle,
+                    price: conv.articlePrice,
+                    itemType: conv.itemType,
+                    role: conv.role
+                };
+            }
+            
+            userConv.totalUnread += conv.unreadCount;
+        }
+        
+        // Convert map to array and sort
+        const sortedUserConversations = Array.from(userConversations.values())
+            .sort((a, b) => new Date(b.lastMessageTime) - new Date(a.lastMessageTime));
+        
+        // Display user conversations
+        sortedUserConversations.forEach(userConv => {
+            const conversationElement = this.createUserConversationElement(userConv);
             conversationsList.appendChild(conversationElement);
         });
     }
 
-    createConversationElement(conversation) {
+    createUserConversationElement(userConv) {
         const element = document.createElement('div');
-        element.className = `conversation-item ${conversation.unreadCount > 0 ? 'unread' : ''}`;
-        element.addEventListener('click', () => this.openChat(conversation));
+        element.className = `conversation-item ${userConv.totalUnread > 0 ? 'unread' : ''}`;
+        element.addEventListener('click', () => this.openChatWithUser(userConv));
         
-        const otherParticipantName = conversation.role === 'seller' 
-            ? (conversation.otherParticipants.length > 0 ? conversation.otherParticipants[0] : 'Unknown User')
-            : conversation.sellerUsername;
+        const lastMessageText = userConv.lastMessage.message.length > 50 
+            ? userConv.lastMessage.message.substring(0, 50) + '...'
+            : userConv.lastMessage.message;
             
-        const roleLabel = conversation.role === 'seller' ? 'Selling' : 'Buying';
-        
-        const lastMessageText = conversation.lastMessage.message.length > 50 
-            ? conversation.lastMessage.message.substring(0, 50) + '...'
-            : conversation.lastMessage.message;
-            
-        const isLastMessageFromUser = conversation.lastMessage.user_id === this.currentUserId;
+        const isLastMessageFromUser = userConv.lastMessage.user_id === this.currentUserId;
         const lastMessagePrefix = isLastMessageFromUser ? 'You: ' : '';
+        
+        // Show article count if multiple
+        const articleCount = userConv.conversations.length;
+        const articleInfo = articleCount > 1 
+            ? `${articleCount} items` 
+            : userConv.lastArticle.title;
+            
+        const roleInfo = userConv.conversations.map(c => c.role).includes('seller') 
+            ? 'Selling' 
+            : 'Buying';
         
         element.innerHTML = `
             <div class="conversation-avatar">
-                ${otherParticipantName.charAt(0).toUpperCase()}
+                ${userConv.otherUser.username.charAt(0).toUpperCase()}
             </div>
             
             <div class="conversation-content">
                 <div class="conversation-header">
                     <div class="conversation-title">
-                        <span class="participant-name">${otherParticipantName}</span>
-                        <span class="role-badge ${conversation.role}">${roleLabel}</span>
+                        <span class="participant-name">${userConv.otherUser.username}</span>
+                        <span class="conversation-count">${articleCount > 1 ? `(${articleCount} items)` : ''}</span>
                     </div>
                     <div class="conversation-time">
-                        ${this.formatTime(conversation.lastMessageTime)}
+                        ${this.formatTime(userConv.lastMessageTime)}
                     </div>
                 </div>
                 
                 <div class="conversation-item-info">
-                    <span class="item-emoji">${this.getItemEmoji(conversation.itemType)}</span>
+                    <span class="item-emoji">${this.getItemEmoji(userConv.lastArticle.itemType)}</span>
                     <div class="item-details">
-                        <div class="item-title">${conversation.articleTitle}</div>
-                        <div class="item-price">$${conversation.articlePrice.toFixed(2)}</div>
+                        <div class="item-title">${articleInfo}</div>
+                        ${userConv.lastArticle ? `<div class="item-price">$${userConv.lastArticle.price.toFixed(2)}</div>` : ''}
                     </div>
                 </div>
                 
                 <div class="conversation-preview">
                     <span class="last-message">${lastMessagePrefix}${lastMessageText}</span>
-                    ${conversation.unreadCount > 0 ? `<span class="unread-badge">${conversation.unreadCount}</span>` : ''}
+                    ${userConv.totalUnread > 0 ? `<span class="unread-badge">${userConv.totalUnread}</span>` : ''}
                 </div>
             </div>
         `;
         
         return element;
+    }
+
+    openChatWithUser(userConv) {
+        // Open chat with the most recent article conversation
+        // Or you could show a list of articles to choose from if multiple
+        if (userConv.conversations.length === 1) {
+            // Single article conversation - open directly
+            const conv = userConv.conversations[0];
+            const chatUrl = `chat.html?user=${encodeURIComponent(userConv.otherUser.username)}&articleId=${conv.articleId}`;
+            window.location.href = chatUrl;
+        } else {
+            // Multiple articles - open with the most recent one
+            // You could enhance this to show a selection dialog
+            const mostRecent = userConv.conversations.reduce((a, b) => 
+                new Date(a.lastMessageTime) > new Date(b.lastMessageTime) ? a : b
+            );
+            const chatUrl = `chat.html?user=${encodeURIComponent(userConv.otherUser.username)}&articleId=${mostRecent.articleId}`;
+            window.location.href = chatUrl;
+        }
     }
 
     getItemEmoji(itemType) {
@@ -247,16 +355,6 @@ class ConversationsApp {
             cd: '💿'
         };
         return emojis[itemType] || '📦';
-    }
-
-    openChat(conversation) {
-        // Navigate to chat with proper parameters
-        const otherUser = conversation.role === 'seller' 
-            ? conversation.otherParticipants[0] 
-            : conversation.sellerUsername;
-            
-        const chatUrl = `chat.html?user=${encodeURIComponent(otherUser)}&articleId=${conversation.articleId}`;
-        window.location.href = chatUrl;
     }
 
     formatTime(timestamp) {

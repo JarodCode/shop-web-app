@@ -1507,8 +1507,419 @@ router.get("/api/articles/:articleId/participants", authMiddleware, async (ctx) 
 });
 
 
+router.get("/api/users/:userId/conversations", authMiddleware, async (ctx) => {
+  try {
+      const userId = parseInt(ctx.params.userId);
+      const tokenData = ctx.state.tokenData as JWTPayload;
+      
+      // Verify user is accessing their own conversations
+      if (userId !== tokenData.userId) {
+          ctx.response.status = 403;
+          ctx.response.body = { error: "Forbidden: Cannot access other users' conversations" };
+          return;
+      }
+      
+      // Get all unique conversations for the user
+      // This query finds all unique user pairs and their latest messages
+      const conversations = await client.query(`
+          WITH conversation_summary AS (
+              SELECT 
+                  cm.article_id,
+                  cm.user_id,
+                  cm.username,
+                  cm.message,
+                  cm.timestamp,
+                  a.user_id as article_owner_id,
+                  a.price as article_price,
+                  a.picture_url as article_image,
+                  a.item_type,
+                  a.item_id,
+                  u.username as article_owner_username,
+                  CASE 
+                      WHEN cm.user_id = ? THEN a.user_id
+                      ELSE cm.user_id
+                  END as other_user_id,
+                  CASE 
+                      WHEN cm.user_id = ? THEN u.username
+                      ELSE cm.username
+                  END as other_username,
+                  CASE
+                      WHEN a.user_id = ? THEN 'seller'
+                      ELSE 'buyer'
+                  END as user_role
+              FROM chat_messages cm
+              JOIN articles a ON cm.article_id = a.id
+              JOIN users u ON a.user_id = u.id
+              WHERE cm.article_id IN (
+                  SELECT DISTINCT article_id 
+                  FROM chat_messages 
+                  WHERE user_id = ? OR article_id IN (
+                      SELECT id FROM articles WHERE user_id = ?
+                  )
+              )
+          ),
+          latest_messages AS (
+              SELECT 
+                  article_id,
+                  other_user_id,
+                  other_username,
+                  user_role,
+                  MAX(timestamp) as last_message_time
+              FROM conversation_summary
+              WHERE user_id = ? OR article_owner_id = ?
+              GROUP BY article_id, other_user_id, other_username, user_role
+          )
+          SELECT 
+              cs.*,
+              lm.last_message_time,
+              b.title as book_title,
+              b.author as book_author,
+              b.genre as book_genre,
+              d.title as dvd_title,
+              d.director as dvd_director,
+              d.genre as dvd_genre,
+              c.author as cd_author,
+              c.genre as cd_genre
+          FROM latest_messages lm
+          JOIN conversation_summary cs ON 
+              cs.article_id = lm.article_id 
+              AND cs.other_user_id = lm.other_user_id
+              AND cs.timestamp = lm.last_message_time
+          LEFT JOIN books b ON cs.item_type = 'book' AND cs.item_id = b.id
+          LEFT JOIN dvds d ON cs.item_type = 'dvd' AND cs.item_id = d.id
+          LEFT JOIN cds c ON cs.item_type = 'cd' AND cs.item_id = c.id
+          ORDER BY cs.timestamp DESC
+      `, [userId, userId, userId, userId, userId, userId, userId]);
+      
+      // Process and format conversations
+      const formattedConversations = [];
+      const conversationMap = new Map();
+      
+      for (const conv of conversations) {
+          const key = `${conv.other_username}_${conv.article_id}`;
+          
+          // Get item info based on type
+          let itemInfo = {};
+          if (conv.item_type === 'book') {
+              itemInfo = {
+                  title: conv.book_title,
+                  author: conv.book_author,
+                  genre: conv.book_genre
+              };
+          } else if (conv.item_type === 'dvd') {
+              itemInfo = {
+                  title: conv.dvd_title,
+                  director: conv.dvd_director,
+                  genre: conv.dvd_genre
+              };
+          } else if (conv.item_type === 'cd') {
+              itemInfo = {
+                  author: conv.cd_author,
+                  genre: conv.cd_genre
+              };
+          }
+          
+          // Count unread messages for this conversation
+          const unreadMessages = await client.query(`
+              SELECT COUNT(*) as unread_count
+              FROM chat_messages
+              WHERE article_id = ?
+              AND user_id != ?
+              AND timestamp > COALESCE((
+                  SELECT MAX(timestamp)
+                  FROM chat_messages
+                  WHERE article_id = ?
+                  AND user_id = ?
+              ), '1970-01-01')
+          `, [conv.article_id, userId, conv.article_id, userId]);
+          
+          const unreadCount = unreadMessages[0]?.unread_count || 0;
+          
+          if (!conversationMap.has(key)) {
+              conversationMap.set(key, {
+                  otherUser: {
+                      id: conv.other_user_id,
+                      username: conv.other_username
+                  },
+                  articleId: conv.article_id,
+                  articleTitle: itemInfo.title || itemInfo.author || 'Untitled',
+                  articlePrice: parseFloat(conv.article_price),
+                  articleImage: conv.article_image,
+                  itemType: conv.item_type,
+                  itemInfo: itemInfo,
+                  role: conv.user_role,
+                  lastMessage: {
+                      id: conv.id,
+                      user_id: conv.user_id,
+                      username: conv.username,
+                      message: conv.message,
+                      timestamp: conv.timestamp
+                  },
+                  lastMessageTime: conv.timestamp,
+                  unreadCount: unreadCount
+              });
+          }
+      }
+      
+      // Convert map to array
+      for (const [key, value] of conversationMap) {
+          formattedConversations.push(value);
+      }
+      
+      ctx.response.body = {
+          message: "Conversations retrieved successfully",
+          conversations: formattedConversations
+      };
+      
+  } catch (error) {
+      console.error("❌ Conversations retrieval error:", error);
+      ctx.response.status = 500;
+      ctx.response.body = { error: "Internal server error" };
+  }
+});
 
+// Also add an endpoint to get all messages between two users
+router.get("/api/conversations/:otherUsername/messages", authMiddleware, async (ctx) => {
+  try {
+      const otherUsername = ctx.params.otherUsername;
+      const tokenData = ctx.state.tokenData as JWTPayload;
+      const currentUserId = tokenData.userId;
+      
+      // Get the other user's ID
+      const otherUserResult = await client.query(
+          "SELECT id FROM users WHERE username = ?",
+          [otherUsername]
+      );
+      
+      if (otherUserResult.length === 0) {
+          ctx.response.status = 404;
+          ctx.response.body = { error: "User not found" };
+          return;
+      }
+      
+      const otherUserId = otherUserResult[0].id;
+      
+      // Get all messages between these two users across all articles
+      const messages = await client.query(`
+          SELECT 
+              cm.*,
+              a.item_type,
+              a.item_id,
+              a.price,
+              a.picture_url
+          FROM chat_messages cm
+          JOIN articles a ON cm.article_id = a.id
+          WHERE 
+              (cm.user_id = ? AND a.user_id = ?) OR
+              (cm.user_id = ? AND a.user_id = ?) OR
+              (cm.user_id = ? AND cm.article_id IN (
+                  SELECT DISTINCT article_id 
+                  FROM chat_messages 
+                  WHERE user_id = ?
+              )) OR
+              (cm.user_id = ? AND cm.article_id IN (
+                  SELECT DISTINCT article_id 
+                  FROM chat_messages 
+                  WHERE user_id = ?
+              ))
+          ORDER BY cm.timestamp ASC
+      `, [currentUserId, otherUserId, otherUserId, currentUserId, 
+          currentUserId, otherUserId, otherUserId, currentUserId]);
+      
+      ctx.response.body = {
+          message: "Messages retrieved successfully",
+          messages: messages,
+          currentUserId: currentUserId,
+          otherUserId: otherUserId,
+          otherUsername: otherUsername
+      };
+      
+  } catch (error) {
+      console.error("❌ Messages retrieval error:", error);
+      ctx.response.status = 500;
+      ctx.response.body = { error: "Internal server error" };
+  }
+});
 
+// Delete an article (only by the owner)
+router.delete("/api/articles/:id", authMiddleware, async (ctx) => {
+  try {
+      const articleId = parseInt(ctx.params.id);
+      const tokenData = ctx.state.tokenData as JWTPayload;
+      const userId = tokenData.userId;
+      
+      if (!articleId || isNaN(articleId)) {
+          ctx.response.status = 400;
+          ctx.response.body = { error: "Invalid article ID" };
+          return;
+      }
+      
+      // Check if the article exists and belongs to the user
+      const articles = await client.query(
+          "SELECT * FROM articles WHERE id = ? AND user_id = ?",
+          [articleId, userId]
+      );
+      
+      if (articles.length === 0) {
+          // Check if article exists but belongs to someone else
+          const articleExists = await client.query(
+              "SELECT * FROM articles WHERE id = ?",
+              [articleId]
+          );
+          
+          if (articleExists.length > 0) {
+              ctx.response.status = 403;
+              ctx.response.body = { error: "Forbidden: You can only delete your own articles" };
+          } else {
+              ctx.response.status = 404;
+              ctx.response.body = { error: "Article not found" };
+          }
+          return;
+      }
+      
+      const article = articles[0];
+      
+      // Delete the article (this will cascade delete related chat messages due to foreign key constraint)
+      await client.execute(
+          "DELETE FROM articles WHERE id = ?",
+          [articleId]
+      );
+      
+      // Also delete the associated item (book, dvd, or cd)
+      if (article.item_type === 'book') {
+          await client.execute("DELETE FROM books WHERE id = ?", [article.item_id]);
+      } else if (article.item_type === 'dvd') {
+          await client.execute("DELETE FROM dvds WHERE id = ?", [article.item_id]);
+      } else if (article.item_type === 'cd') {
+          await client.execute("DELETE FROM cds WHERE id = ?", [article.item_id]);
+      }
+      
+      console.log(`🗑️ Article ${articleId} deleted by user ${tokenData.username}`);
+      
+      ctx.response.status = 200;
+      ctx.response.body = {
+          message: "Article deleted successfully",
+          deletedArticle: {
+              id: articleId,
+              item_type: article.item_type,
+              item_id: article.item_id
+          }
+      };
+  } catch (error) {
+      console.error("❌ Article deletion error:", error);
+      ctx.response.status = 500;
+      ctx.response.body = { error: "Internal server error" };
+  }
+});
+
+// Mark an article as sold (alternative to deletion)
+router.patch("/api/articles/:id/sold", authMiddleware, async (ctx) => {
+  try {
+      const articleId = parseInt(ctx.params.id);
+      const tokenData = ctx.state.tokenData as JWTPayload;
+      const userId = tokenData.userId;
+      
+      if (!articleId || isNaN(articleId)) {
+          ctx.response.status = 400;
+          ctx.response.body = { error: "Invalid article ID" };
+          return;
+      }
+      
+      // Check if the article exists and belongs to the user
+      const articles = await client.query(
+          "SELECT * FROM articles WHERE id = ? AND user_id = ?",
+          [articleId, userId]
+      );
+      
+      if (articles.length === 0) {
+          ctx.response.status = 404;
+          ctx.response.body = { error: "Article not found or you don't have permission to modify it" };
+          return;
+      }
+      
+      // Toggle the sold status
+      const currentStatus = articles[0].is_sold;
+      const newStatus = !currentStatus;
+      
+      await client.execute(
+          "UPDATE articles SET is_sold = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+          [newStatus, articleId]
+      );
+      
+      console.log(`📦 Article ${articleId} marked as ${newStatus ? 'sold' : 'available'} by user ${tokenData.username}`);
+      
+      ctx.response.status = 200;
+      ctx.response.body = {
+          message: `Article marked as ${newStatus ? 'sold' : 'available'} successfully`,
+          article: {
+              id: articleId,
+              is_sold: newStatus
+          }
+      };
+  } catch (error) {
+      console.error("❌ Article status update error:", error);
+      ctx.response.status = 500;
+      ctx.response.body = { error: "Internal server error" };
+  }
+});
+
+// Get all articles for the current user
+router.get("/api/users/me/articles", authMiddleware, async (ctx) => {
+  try {
+      const tokenData = ctx.state.tokenData as JWTPayload;
+      const userId = tokenData.userId;
+      
+      // Get all articles for the user
+      const articles = await client.query(`
+          SELECT 
+              a.*,
+              CASE 
+                  WHEN a.item_type = 'book' THEN b.title
+                  WHEN a.item_type = 'dvd' THEN d.title
+                  WHEN a.item_type = 'cd' THEN c.author
+              END as item_name,
+              CASE 
+                  WHEN a.item_type = 'book' THEN b.author
+                  WHEN a.item_type = 'dvd' THEN d.director
+                  WHEN a.item_type = 'cd' THEN c.author
+              END as item_creator,
+              CASE 
+                  WHEN a.item_type = 'book' THEN b.genre
+                  WHEN a.item_type = 'dvd' THEN d.genre
+                  WHEN a.item_type = 'cd' THEN c.genre
+              END as item_genre,
+              (SELECT COUNT(*) FROM chat_messages WHERE article_id = a.id) as message_count
+          FROM articles a
+          LEFT JOIN books b ON a.item_type = 'book' AND a.item_id = b.id
+          LEFT JOIN dvds d ON a.item_type = 'dvd' AND a.item_id = d.id
+          LEFT JOIN cds c ON a.item_type = 'cd' AND a.item_id = c.id
+          WHERE a.user_id = ?
+          ORDER BY a.created_at DESC
+      `, [userId]);
+      
+      ctx.response.body = {
+          message: "User articles retrieved successfully",
+          articles: articles.map(article => ({
+              id: article.id,
+              item_type: article.item_type,
+              item_name: article.item_name,
+              item_creator: article.item_creator,
+              item_genre: article.item_genre,
+              description: article.description,
+              price: parseFloat(article.price),
+              picture_url: article.picture_url,
+              is_sold: Boolean(article.is_sold),
+              message_count: article.message_count,
+              created_at: article.created_at,
+              updated_at: article.updated_at
+          }))
+      };
+  } catch (error) {
+      console.error("❌ User articles retrieval error:", error);
+      ctx.response.status = 500;
+      ctx.response.body = { error: "Internal server error" };
+  }
+});
 
 // Application setup
 const app = new Application();
