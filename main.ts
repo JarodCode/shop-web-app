@@ -398,24 +398,35 @@ function generateJWT(payload: JWTPayload): Promise<string> {
 
 // Middleware for JWT authentication
 async function authMiddleware(ctx: any, next: () => Promise<unknown>) {
-    const cookie = ctx.request.headers.get("cookie");
-    const authToken = cookie?.split("; ").find(row => row.startsWith("auth_token="))?.split('=')[1];
+  const cookie = ctx.request.headers.get("cookie");
+  const authToken = cookie?.split("; ").find(row => row.startsWith("auth_token="))?.split('=')[1];
 
-    if (!authToken) {
-        ctx.response.status = 401;
-        ctx.response.body = { error: "Unauthorized: Missing token" };
-        return;
-    }
-
-    try {
-      // Verify the token
-      const tokenData = await verify(authToken, secretKey);
-      ctx.state.tokenData = tokenData; // Store data in ctx.state for use in other middlewares/routes
-      await next();
-    } catch {
+  if (!authToken) {
       ctx.response.status = 401;
-      ctx.response.body = { error: "Unauthorized: Invalid token" };
+      ctx.response.body = { error: "Unauthorized: Missing token" };
+      return;
+  }
+
+  try {
+    // Verify the token
+    const tokenData = await verify(authToken, secretKey);
+    
+    // Get user's admin status from database
+    const users = await client.query(
+      "SELECT is_admin FROM users WHERE id = ?",
+      [tokenData.userId]
+    );
+    
+    if (users.length > 0) {
+      tokenData.isAdmin = Boolean(users[0].is_admin);
     }
+    
+    ctx.state.tokenData = tokenData; // Store data in ctx.state for use in other middlewares/routes
+    await next();
+  } catch {
+    ctx.response.status = 401;
+    ctx.response.body = { error: "Unauthorized: Invalid token" };
+  }
 }
 
 // Router setup
@@ -735,8 +746,16 @@ router.post("/api/articles", authMiddleware, async (ctx) => {
 });
 
 router.get('/test_cookie', authMiddleware, (ctx) => {
-    ctx.response.body = { message: 'Token verified successfully', token_data: ctx.state.tokenData };
- 
+  const tokenData = ctx.state.tokenData;
+  ctx.response.body = { 
+      message: 'Token verified successfully', 
+      token_data: {
+          userId: tokenData.userId,
+          username: tokenData.username,
+          isAdmin: tokenData.isAdmin || false,
+          exp: tokenData.exp
+      }
+  };
 });
 
 // Fixed CD articles endpoints - replace the existing ones in your main.ts
@@ -1779,19 +1798,39 @@ router.delete("/api/articles/:id", authMiddleware, async (ctx) => {
       
       const article = articles[0];
       
-      // Delete the article (this will cascade delete related chat messages due to foreign key constraint)
+      // Delete the article first (this will cascade delete related chat messages due to foreign key constraint)
       await client.execute(
           "DELETE FROM articles WHERE id = ?",
           [articleId]
       );
       
-      // Also delete the associated item (book, dvd, or cd)
-      if (article.item_type === 'book') {
-          await client.execute("DELETE FROM books WHERE id = ?", [article.item_id]);
-      } else if (article.item_type === 'dvd') {
-          await client.execute("DELETE FROM dvds WHERE id = ?", [article.item_id]);
-      } else if (article.item_type === 'cd') {
-          await client.execute("DELETE FROM cds WHERE id = ?", [article.item_id]);
+      // Check if the item (book, dvd, or cd) is referenced by other articles
+      const otherArticlesWithSameItem = await client.query(
+          "SELECT COUNT(*) as count FROM articles WHERE item_type = ? AND item_id = ? AND id != ?",
+          [article.item_type, article.item_id, articleId]
+      );
+      
+      const itemStillReferenced = otherArticlesWithSameItem[0].count > 0;
+      
+      // Only delete the associated item if no other articles reference it
+      if (!itemStillReferenced) {
+          try {
+              if (article.item_type === 'book') {
+                  await client.execute("DELETE FROM books WHERE id = ?", [article.item_id]);
+                  console.log(`🗑️ Deleted book with ID ${article.item_id} (no other articles reference it)`);
+              } else if (article.item_type === 'dvd') {
+                  await client.execute("DELETE FROM dvds WHERE id = ?", [article.item_id]);
+                  console.log(`🗑️ Deleted DVD with ID ${article.item_id} (no other articles reference it)`);
+              } else if (article.item_type === 'cd') {
+                  await client.execute("DELETE FROM cds WHERE id = ?", [article.item_id]);
+                  console.log(`🗑️ Deleted CD with ID ${article.item_id} (no other articles reference it)`);
+              }
+          } catch (itemError) {
+              // If item deletion fails, it's okay - the article is already deleted
+              console.log(`⚠️ Could not delete ${article.item_type} with ID ${article.item_id}: ${itemError.message}`);
+          }
+      } else {
+          console.log(`ℹ️ Keeping ${article.item_type} with ID ${article.item_id} (referenced by other articles)`);
       }
       
       console.log(`🗑️ Article ${articleId} deleted by user ${tokenData.username}`);
@@ -1808,7 +1847,7 @@ router.delete("/api/articles/:id", authMiddleware, async (ctx) => {
   } catch (error) {
       console.error("❌ Article deletion error:", error);
       ctx.response.status = 500;
-      ctx.response.body = { error: "Internal server error" };
+      ctx.response.body = { error: "Internal server error: " + error.message };
   }
 });
 

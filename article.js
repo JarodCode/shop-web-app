@@ -1,4 +1,4 @@
-// article.js - Fixed version with proper chat integration
+// article.js - Fixed version with proper admin delete functionality
 
 class ArticleDetailsApp {
     constructor() {
@@ -51,12 +51,12 @@ class ArticleDetailsApp {
 
         const contactSellerBtn = document.getElementById('contactSellerBtn');
         if (contactSellerBtn) {
-            contactSellerBtn.addEventListener('click', () => this.openChat());
+            contactSellerBtn.addEventListener('click', () => this.handleContactButtonClick());
         }
 
         const shareArticleBtn = document.getElementById('shareArticleBtn');
         if (shareArticleBtn) {
-            shareArticleBtn.addEventListener('click', () => this.showShareModal());
+            shareArticleBtn.addEventListener('click', () => this.handleShareButtonClick());
         }
 
         const reportArticleBtn = document.getElementById('reportArticleBtn');
@@ -204,6 +204,8 @@ class ArticleDetailsApp {
 
     updateContactButton() {
         const contactBtn = document.getElementById('contactSellerBtn');
+        const shareBtn = document.getElementById('shareArticleBtn');
+        
         if (!contactBtn) return;
 
         const isOwnArticle = this.currentUserId && this.article.user_id === this.currentUserId;
@@ -211,21 +213,136 @@ class ArticleDetailsApp {
         const isSold = this.article.is_sold;
 
         if (isOwnArticle) {
-            contactBtn.disabled = true;
-            contactBtn.textContent = '👤 Your Item';
-            contactBtn.title = 'This is your own item';
+            // Owner sees delete button
+            contactBtn.textContent = '🗑️ Delete Article';
+            contactBtn.title = 'Delete this article';
+            contactBtn.className = 'btn-primary btn-delete';
+            contactBtn.disabled = false;
+            contactBtn.dataset.action = 'delete';
+            
+            // Change share button to toggle sold status
+            if (shareBtn) {
+                shareBtn.textContent = isSold ? '✅ Mark Available' : '💰 Mark as Sold';
+                shareBtn.title = isSold ? 'Mark this item as available' : 'Mark this item as sold';
+                shareBtn.dataset.action = 'toggle-sold';
+            }
         } else if (!isLoggedIn) {
             contactBtn.disabled = true;
             contactBtn.textContent = '🔒 Login to Contact';
             contactBtn.title = 'Please log in to contact the seller';
+            contactBtn.dataset.action = 'login-required';
         } else if (isSold) {
             contactBtn.disabled = true;
             contactBtn.textContent = '❌ Item Sold';
             contactBtn.title = 'This item has been sold';
+            contactBtn.dataset.action = 'item-sold';
         } else {
             contactBtn.disabled = false;
             contactBtn.textContent = '💬 Chat with Seller';
             contactBtn.title = 'Start a chat with the seller';
+            contactBtn.dataset.action = 'chat';
+        }
+    }
+
+    handleContactButtonClick() {
+        const contactBtn = document.getElementById('contactSellerBtn');
+        const action = contactBtn?.dataset.action;
+
+        switch (action) {
+            case 'delete':
+                this.deleteArticle();
+                break;
+            case 'chat':
+                this.openChat();
+                break;
+            case 'login-required':
+                alert('Please log in to contact the seller.');
+                break;
+            case 'item-sold':
+                alert('This item has been sold.');
+                break;
+            default:
+                console.log('Unknown action:', action);
+        }
+    }
+
+    handleShareButtonClick() {
+        const shareBtn = document.getElementById('shareArticleBtn');
+        const action = shareBtn?.dataset.action;
+
+        if (action === 'toggle-sold') {
+            this.toggleSoldStatus();
+        } else {
+            this.showShareModal();
+        }
+    }
+
+    async deleteArticle() {
+        const title = this.article.book_info?.title || 
+                     this.article.dvd_info?.title || 
+                     this.article.cd_info?.author || 
+                     this.article.item_info?.title || 
+                     this.article.item_info?.author || 
+                     'this article';
+                     
+        if (!confirm(`Are you sure you want to delete "${title}"?\n\nThis action cannot be undone and will also delete all related chat messages.`)) {
+            return;
+        }
+
+        try {
+            console.log(`Attempting to delete article ${this.articleId}`);
+            
+            const response = await fetch(`http://localhost:8000/api/articles/${this.articleId}`, {
+                method: 'DELETE',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+            }
+
+            console.log('Article deleted successfully');
+            alert('Article deleted successfully!');
+            
+            // Redirect to marketplace instead of my-articles
+            window.location.href = 'marketplace.html';
+
+        } catch (error) {
+            console.error('Error deleting article:', error);
+            alert(`Failed to delete article: ${error.message}`);
+        }
+    }
+
+    async toggleSoldStatus() {
+        try {
+            const response = await fetch(`http://localhost:8000/api/articles/${this.articleId}/sold`, {
+                method: 'PATCH',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            this.article.is_sold = data.article.is_sold;
+            
+            // Refresh the display
+            this.displayArticleDetails();
+            
+            const status = data.article.is_sold ? 'sold' : 'available';
+            alert(`Article marked as ${status}!`);
+
+        } catch (error) {
+            console.error('Error updating article status:', error);
+            alert('Failed to update article status. Please try again.');
         }
     }
 
@@ -245,7 +362,7 @@ class ArticleDetailsApp {
             return;
         }
 
-        // Fixed: Pass the correct parameters to chat.html
+        // Navigate to chat page
         const chatUrl = `chat.html?user=${encodeURIComponent(this.article.seller_username)}&articleId=${this.articleId}`;
         window.location.href = chatUrl;
     }
