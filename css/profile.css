@@ -1,0 +1,305 @@
+/* ===== PROFILE PAGE STYLES ===== */
+
+/* Profile Header */
+.profile-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 2rem 0;
+    margin-bottom: 2rem;
+    border-radius: 0.75rem;
+}
+
+.profile-header h1 {
+    color: white;
+    font-size: 2rem;
+    margin-bottom: 0;
+}
+
+.logout-btn {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    backdrop-filter: blur(10px);
+}
+
+.logout-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    color: white;
+}
+
+/* Profile Info Section */
+.profile-info {
+    margin-bottom: 2rem;
+}
+
+.profile-card {
+    background: white;
+    border-radius: 0.75rem;
+    padding: 2rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.profile-card h2 {
+    color: #1f2937;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+.profile-details {
+    display: grid;
+    gap: 1rem;
+}
+
+.profile-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.profile-item:last-child {
+    border-bottom: none;
+}
+
+.profile-item label {
+    font-weight: 600;
+    color: #374151;
+    margin: 0;
+}
+
+.profile-item span {
+    color: #6b7280;
+    font-weight: 500;
+}
+
+/* Navigation Section */
+.navigation-section {
+    margin-bottom: 2rem;
+}
+
+.navigation-section h2 {
+    color: #1f2937;
+    margin-bottom: 1.5rem;
+}
+
+.category-buttons {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+}
+
+.category-btn {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.5rem;
+    background: white;
+    border: 2px solid #e5e7eb;
+    border-radius: 0.75rem;
+    text-decoration: none;
+    color: inherit;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.category-btn:hover {
+    border-color: #3b82f6;
+    background: #f8fafc;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(59, 130, 246, 0.15);
+    text-decoration: none;
+    color: inherit;
+}
+
+.category-btn .btn-icon {
+    font-size: 2.5rem;
+    line-height: 1;
+}
+
+.category-btn .btn-text h3 {
+    color: #1f2937;
+    margin-bottom: 0.25rem;
+    font-size: 1.125rem;
+}
+
+.category-btn .btn-text p {
+    color: #6b7280;
+    margin: 0;
+    font-size: 0.875rem;
+}
+
+.books-btn:hover {
+    border-color: #3b82f6;
+    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+}
+
+.dvds-btn:hover {
+    border-color: #f59e0b;
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+}
+
+.cds-btn:hover {
+    border-color: #8b5cf6;
+    background: linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%);
+}
+
+/* Quick Actions */
+.quick-actions {
+    margin-bottom: 2rem;
+}
+
+.quick-actions h2 {
+    color: #1f2937;
+    margin-bottom: 1.5rem;
+}
+
+.action-buttons {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    border: none;
+    border-radius: 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: white;
+}
+
+.action-btn:hover {
+    transform: translateY(-2px);
+    text-decoration: none;
+    color: white;
+}
+
+.action-btn .btn-icon {
+    font-size: 1.25rem;
+}
+
+.create-btn {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.create-btn:hover {
+    box-shadow: 0 8px 25px rgba(16, 185, 129, 0.3);
+}
+
+.conversations-btn {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+}
+
+.conversations-btn:hover {
+    box-shadow: 0 8px 25px rgba(59, 130, 246, 0.3);
+}
+
+.manage-btn {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+.manage-btn:hover {
+    box-shadow: 0 8px 25px rgba(245, 158, 11, 0.3);
+}
+
+.settings-btn {
+    background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+}
+
+.settings-btn:hover {
+    box-shadow: 0 8px 25px rgba(107, 114, 128, 0.3);
+}
+
+/* Admin styling for settings button */
+.settings-btn.admin {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.settings-btn.admin:hover {
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+}
+
+/* Account Type Indicator */
+#account-type {
+    padding: 0.25rem 0.75rem;
+    border-radius: 1rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+#account-type[data-admin="true"] {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+#account-type[data-admin="false"] {
+    background: #f3f4f6;
+    color: #6b7280;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .profile-header {
+        padding: 1.5rem 0;
+    }
+    
+    .profile-header h1 {
+        font-size: 1.5rem;
+    }
+    
+    .profile-card {
+        padding: 1.5rem;
+    }
+    
+    .category-buttons {
+        grid-template-columns: 1fr;
+    }
+    
+    .category-btn {
+        padding: 1.25rem;
+    }
+    
+    .category-btn .btn-icon {
+        font-size: 2rem;
+    }
+    
+    .action-buttons {
+        grid-template-columns: 1fr;
+    }
+    
+    .profile-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .profile-card {
+        padding: 1rem;
+    }
+    
+    .category-btn {
+        flex-direction: column;
+        text-align: center;
+        gap: 0.75rem;
+    }
+    
+    .action-btn {
+        padding: 0.875rem 1rem;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+}
