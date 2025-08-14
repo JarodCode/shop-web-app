@@ -266,6 +266,15 @@ async function handleArticleSubmit(e) {
         
         console.log('📝 Creating article:', articleData);
         
+        // Validation
+        if (!articleData.item_type || !articleData.item_id || !articleData.price) {
+            throw new Error("Item type, item ID, and price are required");
+        }
+
+        if (articleData.price <= 0) {
+            throw new Error("Price must be greater than 0");
+        }
+        
         const response = await fetch('http://localhost:8000/api/articles', {
             method: 'POST',
             headers: {
@@ -276,11 +285,12 @@ async function handleArticleSubmit(e) {
         });
         
         console.log('📡 Response status:', response.status);
+        console.log('📡 Response headers:', Object.fromEntries(response.headers.entries()));
         
         if (!response.ok) {
-            const errorData = await response.json();
+            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
             console.error('❌ Server error response:', errorData);
-            throw new Error(errorData.error || 'Failed to create article');
+            throw new Error(errorData.error || `Server error: ${response.status}`);
         }
         
         const result = await response.json();
@@ -302,7 +312,6 @@ async function handleArticleSubmit(e) {
         hideLoading();
     }
 }
-
 function showLoading(text = 'Loading...') {
     document.getElementById('loadingText').textContent = text;
     loadingOverlay.style.display = 'flex';

@@ -749,13 +749,38 @@ router.post("/api/cds", authMiddleware, async (ctx) => {
 router.post("/api/articles", authMiddleware, async (ctx) => {
   try {
       const tokenData = ctx.state.tokenData as JWTPayload;
+      
+      console.log('📝 Article creation request received');
+      console.log('📝 Content-Type:', ctx.request.headers.get("content-type"));
+      
+      // Handle JSON requests (which is what your frontend sends)
       const body = await ctx.request.body();
-      const { item_type, item_id, description, price } = await body.value;
+      const bodyValue = await body.value;
+      
+      console.log('📝 Request body type:', body.type);
+      console.log('📝 Request body value:', bodyValue);
+      
+      let articleData;
+      
+      if (body.type === "json") {
+          articleData = bodyValue;
+      } else {
+          // For backwards compatibility, try to parse as JSON
+          try {
+              articleData = JSON.parse(bodyValue);
+          } catch {
+              ctx.response.status = 400;
+              ctx.response.body = { error: "Invalid JSON in request body" };
+              return;
+          }
+      }
+      
+      const { item_type, item_id, description, price } = articleData;
       
       console.log('📝 Creating article:', { item_type, item_id, description, price });
       
       // Validation
-      if (!item_type || !item_id || !price) {
+      if (!item_type || !item_id || price === undefined || price === null) {
           ctx.response.status = 400;
           ctx.response.body = { error: "Item type, item ID, and price are required" };
           return;
@@ -767,51 +792,68 @@ router.post("/api/articles", authMiddleware, async (ctx) => {
           return;
       }
 
-      if (price <= 0) {
+      const priceNum = parseFloat(price);
+      if (isNaN(priceNum) || priceNum <= 0) {
           ctx.response.status = 400;
-          ctx.response.body = { error: "Price must be greater than 0" };
+          ctx.response.body = { error: "Price must be a valid number greater than 0" };
           return;
       }
 
       // Verify that the item exists
       let itemExists = false;
-      if (item_type === 'book') {
-          const books = await client.query("SELECT id FROM books WHERE id = ?", [item_id]);
-          itemExists = books.length > 0;
-      } else if (item_type === 'dvd') {
-          const dvds = await client.query("SELECT id FROM dvds WHERE id = ?", [item_id]);
-          itemExists = dvds.length > 0;
-      } else if (item_type === 'cd') {
-          const cds = await client.query("SELECT id FROM cds WHERE id = ?", [item_id]);
-          itemExists = cds.length > 0;
+      try {
+          if (item_type === 'book') {
+              const books = await client.query("SELECT id FROM books WHERE id = ?", [item_id]);
+              itemExists = books.length > 0;
+          } else if (item_type === 'dvd') {
+              const dvds = await client.query("SELECT id FROM dvds WHERE id = ?", [item_id]);
+              itemExists = dvds.length > 0;
+          } else if (item_type === 'cd') {
+              const cds = await client.query("SELECT id FROM cds WHERE id = ?", [item_id]);
+              itemExists = cds.length > 0;
+          }
+      } catch (dbError) {
+          console.error("❌ Database error checking item:", dbError);
+          ctx.response.status = 500;
+          ctx.response.body = { error: "Database error while verifying item" };
+          return;
       }
 
       if (!itemExists) {
           ctx.response.status = 404;
-          ctx.response.body = { error: "Item not found" };
+          ctx.response.body = { error: `${item_type} with ID ${item_id} not found` };
           return;
       }
 
-      // Create the article (removed picture_url from query)
-      const result = await client.execute(
-          "INSERT INTO articles (user_id, item_type, item_id, description, price) VALUES (?, ?, ?, ?, ?)",
-          [tokenData.userId, item_type, item_id, description || null, price]
-      );
+      // Create the article
+      try {
+          const result = await client.execute(
+              "INSERT INTO articles (user_id, item_type, item_id, description, price) VALUES (?, ?, ?, ?, ?)",
+              [tokenData.userId, item_type, item_id, description || null, priceNum]
+          );
 
-      console.log(`✅ Article created successfully: ID ${result.lastInsertId}`);
+          console.log(`✅ Article created successfully: ID ${result.lastInsertId}`);
 
-      ctx.response.status = 201;
-      ctx.response.body = {
-          message: "Article created successfully",
-          article: {
-              id: result.lastInsertId,
-              user_id: tokenData.userId,
-              item_type,
-              item_id,
-              description,
-              price,
-          },
-      };
+          ctx.response.status = 201;
+          ctx.response.body = {
+              message: "Article created successfully",
+              article: {
+                  id: result.lastInsertId,
+                  user_id: tokenData.userId,
+                  item_type,
+                  item_id,
+                  description: description || null,
+                  price: priceNum,
+                  is_sold: false,
+                  created_at: new Date().toISOString()
+              },
+          };
+      } catch (dbError) {
+          console.error("❌ Database error creating article:", dbError);
+          ctx.response.status = 500;
+          ctx.response.body = { error: "Database error while creating article" };
+          return;
+      }
       
   } catch (error) {
       console.error("❌ Article creation error:", error);
