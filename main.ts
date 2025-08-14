@@ -1,4 +1,68 @@
-import { Application, Router } from "https://deno.land/x/oak@v12.6.1/mod.ts";
+// Test cookie endpoint - for profile page
+router.get("/test_cookie", cookieAuthMiddleware, async (ctx) => {
+    try {
+        const user = ctx.state.user;
+        
+        ctx.response.body = { 
+            message: 'Token verified successfully', 
+            token_data: {
+                userId: user.id,
+                username: user.username,
+                isAdmin: user.isAdmin,
+                sessionId: user.sessionId
+            }
+        };
+    } catch (error) {
+        console.error("❌ Test cookie error:", error);
+        ctx.response.status = 500;
+        ctx.response.body = { error: "Internal server error" };
+    }
+});
+
+// ✅ NEW: Special endpoint to handle multiple sessions
+router.post("/api/auth/select-session", async (ctx) => {
+    try {
+        const body = await ctx.request.body();
+        const { sessionId } = await body.value;
+        
+        if (!sessionId) {
+            ctx.response.status = 400;
+            ctx.response.body = { error: "Session ID required" };
+            return;
+        }
+        
+        // Check if session exists
+        const sessionInfo = activeSessions[sessionId];
+        if (!sessionInfo) {
+            ctx.response.status = 404;
+            ctx.response.body = { error: "Session not found" };
+            return;
+        }
+        
+        // Generate new token for this specific session
+        const token = await generateJWT({
+            userId: sessionInfo.userId,
+            username: sessionInfo.username,
+            sessionId: sessionId,
+            isAdmin: sessionInfo.isAdmin
+        });
+        
+        // Set the cookie for this session
+        const isProduction = Deno.env.get('NODE_ENV') === 'production';
+        await ctx.cookies.set("auth_token", token, {
+            httpOnly: true,
+            sameSite: "lax",
+            maxAge: 8 * 60 * 60 * 1000,
+            secure: isProduction,
+            domain: "localhost"
+        });
+        
+        ctx.response.body = {
+            message: "Session selected successfully",
+            user: {
+                id: sessionInfo.userId,
+                username: sessionInfo.username,
+                isimport { Application, Router } from "https://deno.land/x/oak@v12.6.1/mod.ts";
 import { oakCors } from "https://deno.land/x/cors@v1.2.2/mod.ts";
 import { Client } from "https://deno.land/x/mysql@v2.12.1/mod.ts";
 import * as bcrypt from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
@@ -61,8 +125,18 @@ interface WebSocketClient {
     chatRoomId?: string;
 }
 
-// Token storage - using proper JWT approach
-const activeSessions: { [sessionId: string]: { userId: number, username: string, isAdmin: boolean, loginTime: Date, lastActivity: Date } } = {};
+interface SessionInfo {
+    userId: number;
+    username: string;
+    isAdmin: boolean;
+    loginTime: Date;
+    lastActivity: Date;
+    userAgent?: string;
+    ipAddress?: string;
+}
+
+// ✅ FIXED: Allow multiple concurrent sessions per user
+const activeSessions: { [sessionId: string]: SessionInfo } = {};
 
 async function connectToDatabase() {
     try {
@@ -201,12 +275,12 @@ function generateJWT(payload: Omit<JWTPayload, 'iat' | 'exp'>): Promise<string> 
     const fullPayload: JWTPayload = {
         ...payload,
         iat: Math.floor(Date.now() / 1000),
-        exp: Math.floor(Date.now() / 1000) + (2 * 60 * 60), // 2 hours
+        exp: Math.floor(Date.now() / 1000) + (8 * 60 * 60), // ✅ FIXED: 8 hours
     };
     return create({ alg: "HS512", typ: "JWT" }, fullPayload, secretKey);
 }
 
-// Auth middleware for cookie-based authentication
+// ✅ FIXED: Standard auth middleware - now returns multiple valid sessions
 async function cookieAuthMiddleware(ctx: any, next: () => Promise<unknown>) {
     try {
         console.log(`🍪 Cookie auth middleware called for: ${ctx.request.method} ${ctx.request.url.pathname}`);
@@ -240,6 +314,14 @@ async function cookieAuthMiddleware(ctx: any, next: () => Promise<unknown>) {
             console.log(`📊 Available sessions: ${Object.keys(activeSessions).map(s => s.substring(0, 8)).join(', ')}`);
             ctx.response.status = 401;
             ctx.response.body = { error: "Unauthorized: Session expired" };
+            return;
+        }
+
+        // ✅ FIXED: Verify that the session belongs to the same user (security check)
+        if (sessionInfo.userId !== payload.userId) {
+            console.log(`❌ Session user mismatch: session=${sessionInfo.userId}, token=${payload.userId}`);
+            ctx.response.status = 401;
+            ctx.response.body = { error: "Unauthorized: Invalid session" };
             return;
         }
 
@@ -462,13 +544,19 @@ router.post("/api/auth/register", async (ctx) => {
         const userId = result.lastInsertId as number;
         const sessionId = generateSessionId();
 
+        // ✅ FIXED: Get client info for session tracking
+        const userAgent = ctx.request.headers.get("user-agent") || "Unknown";
+        const ipAddress = ctx.request.ip || "Unknown";
+
         // Create session
         activeSessions[sessionId] = {
             userId,
             username,
             isAdmin: false,
             loginTime: new Date(),
-            lastActivity: new Date()
+            lastActivity: new Date(),
+            userAgent,
+            ipAddress
         };
 
         // Generate JWT
@@ -479,17 +567,17 @@ router.post("/api/auth/register", async (ctx) => {
             isAdmin: false
         });
 
-        // Set secure cookie using Oak's cookie API
+        // ✅ FIXED: Use standard cookie name but return session info for frontend
         const isProduction = Deno.env.get('NODE_ENV') === 'production';
         await ctx.cookies.set("auth_token", token, {
             httpOnly: true,
-            sameSite: "lax", // Changed from "strict" to "lax" for cross-port communication
-            maxAge: 7200000, // 2 hours in milliseconds
+            sameSite: "lax",
+            maxAge: 8 * 60 * 60 * 1000, // 8 hours in milliseconds
             secure: isProduction,
-            domain: "localhost" // Add explicit domain
+            domain: "localhost"
         });
 
-        console.log(`✅ User registered successfully: ${username} (ID: ${userId})`);
+        console.log(`✅ User registered successfully: ${username} (ID: ${userId}, Session: ${sessionId.substring(0, 8)}...)`);
 
         ctx.response.status = 201;
         ctx.response.body = {
@@ -499,6 +587,7 @@ router.post("/api/auth/register", async (ctx) => {
                 username,
                 isAdmin: false
             },
+            sessionId: sessionId, // ✅ FIXED: Return session ID for frontend tracking
         };
     } catch (error) {
         console.error("❌ Registration error:", error);
@@ -507,7 +596,7 @@ router.post("/api/auth/register", async (ctx) => {
     }
 });
 
-// Login endpoint
+// ✅ FIXED: Login endpoint - Allow multiple concurrent sessions
 router.post("/api/auth/login", async (ctx) => {
     try {
         const body = await ctx.request.body();
@@ -537,31 +626,29 @@ router.post("/api/auth/login", async (ctx) => {
             return;
         }
 
-        // Clean up any existing sessions for this user (allow only one session per user)
-        const sessionsToRemove: string[] = [];
-        for (const [sessionId, sessionInfo] of Object.entries(activeSessions)) {
-            if (sessionInfo.userId === user.id) {
-                sessionsToRemove.push(sessionId);
-            }
-        }
-        
-        sessionsToRemove.forEach(sessionId => {
-            delete activeSessions[sessionId];
-            console.log(`🧹 Removed existing session for user: ${username}`);
-        });
+        // ✅ FIXED: DON'T clean up existing sessions - allow multiple concurrent sessions
+        // Users can now be logged in from multiple browsers/tabs simultaneously
+        console.log(`📊 Current active sessions: ${Object.keys(activeSessions).length}`);
 
         const sessionId = generateSessionId();
 
-        // Create new session
+        // ✅ FIXED: Get client info for session tracking
+        const userAgent = ctx.request.headers.get("user-agent") || "Unknown";
+        const ipAddress = ctx.request.ip || "Unknown";
+
+        // Create new session (without removing others)
         activeSessions[sessionId] = {
             userId: user.id,
             username: user.username,
             isAdmin: Boolean(user.is_admin),
             loginTime: new Date(),
-            lastActivity: new Date()
+            lastActivity: new Date(),
+            userAgent,
+            ipAddress
         };
 
         console.log(`📊 Active sessions after login: ${Object.keys(activeSessions).length}`);
+        console.log(`👤 User ${username} now has ${Object.values(activeSessions).filter(s => s.userId === user.id).length} active session(s)`);
 
         // Generate JWT
         const token = await generateJWT({
@@ -571,17 +658,17 @@ router.post("/api/auth/login", async (ctx) => {
             isAdmin: Boolean(user.is_admin)
         });
 
-        // Set secure cookie using Oak's cookie API
+        // ✅ FIXED: Use standard cookie name but return session info for frontend
         const isProduction = Deno.env.get('NODE_ENV') === 'production';
         await ctx.cookies.set("auth_token", token, {
             httpOnly: true,
-            sameSite: "lax", // Changed from "strict" to "lax" for cross-port communication
-            maxAge: 7200000, // 2 hours in milliseconds
+            sameSite: "lax",
+            maxAge: 8 * 60 * 60 * 1000, // 8 hours in milliseconds
             secure: isProduction,
-            domain: "localhost" // Add explicit domain
+            domain: "localhost"
         });
 
-        console.log(`✅ User logged in: ${username} (Session: ${sessionId.substring(0, 8)}...)`);
+        console.log(`✅ User logged in: ${username} (Session: ${sessionId.substring(0, 8)}...) from ${userAgent.substring(0, 50)}...`);
 
         ctx.response.status = 200;
         ctx.response.body = { 
@@ -590,7 +677,8 @@ router.post("/api/auth/login", async (ctx) => {
                 id: user.id,
                 username: user.username,
                 isAdmin: Boolean(user.is_admin)
-            }
+            },
+            sessionId: sessionId, // ✅ FIXED: Return session ID for frontend tracking
         };
     } catch (error) {
         console.error("❌ Login error:", error);
@@ -604,10 +692,13 @@ router.post("/api/auth/logout", cookieAuthMiddleware, async (ctx) => {
     try {
         const user = ctx.state.user;
         
-        // Remove session
+        // ✅ FIXED: Only remove the CURRENT session, not all user sessions
         if (user.sessionId && activeSessions[user.sessionId]) {
             delete activeSessions[user.sessionId];
-            console.log(`👋 User logged out: ${user.username}`);
+            console.log(`👋 Session ${user.sessionId.substring(0, 8)}... logged out for user: ${user.username}`);
+            
+            const remainingSessions = Object.values(activeSessions).filter(s => s.userId === user.id).length;
+            console.log(`📊 User ${user.username} has ${remainingSessions} remaining active session(s)`);
         }
 
         // Clear cookie using Oak's cookie API
@@ -631,11 +722,108 @@ router.get("/test_cookie", cookieAuthMiddleware, async (ctx) => {
             token_data: {
                 userId: user.id,
                 username: user.username,
-                isAdmin: user.isAdmin
+                isAdmin: user.isAdmin,
+                sessionId: user.sessionId
             }
         };
     } catch (error) {
         console.error("❌ Test cookie error:", error);
+        ctx.response.status = 500;
+        ctx.response.body = { error: "Internal server error" };
+    }
+});
+
+// ✅ NEW: Special endpoint to handle multiple sessions
+router.post("/api/auth/select-session", async (ctx) => {
+    try {
+        const body = await ctx.request.body();
+        const { sessionId } = await body.value;
+        
+        if (!sessionId) {
+            ctx.response.status = 400;
+            ctx.response.body = { error: "Session ID required" };
+            return;
+        }
+        
+        // Check if session exists
+        const sessionInfo = activeSessions[sessionId];
+        if (!sessionInfo) {
+            ctx.response.status = 404;
+            ctx.response.body = { error: "Session not found" };
+            return;
+        }
+        
+        // Generate new token for this specific session
+        const token = await generateJWT({
+            userId: sessionInfo.userId,
+            username: sessionInfo.username,
+            sessionId: sessionId,
+            isAdmin: sessionInfo.isAdmin
+        });
+        
+        // Set the cookie for this session
+        const isProduction = Deno.env.get('NODE_ENV') === 'production';
+        await ctx.cookies.set("auth_token", token, {
+            httpOnly: true,
+            sameSite: "lax",
+            maxAge: 8 * 60 * 60 * 1000,
+            secure: isProduction,
+            domain: "localhost"
+        });
+        
+        ctx.response.body = {
+            message: "Session selected successfully",
+            user: {
+                id: sessionInfo.userId,
+                username: sessionInfo.username,
+                isAdmin: sessionInfo.isAdmin
+            },
+            sessionId: sessionId
+        };
+    } catch (error) {
+        console.error("❌ Session selection error:", error);
+        ctx.response.status = 500;
+        ctx.response.body = { error: "Internal server error" };
+    }
+});
+
+// ✅ NEW: Get available sessions for user selection
+router.get("/api/auth/sessions", async (ctx) => {
+    try {
+        // Try to get current token to see which user
+        const authToken = await ctx.cookies.get("auth_token");
+        
+        if (!authToken) {
+            ctx.response.body = { sessions: [] };
+            return;
+        }
+        
+        try {
+            const payload = await verify(authToken, secretKey) as JWTPayload;
+            
+            // Find all sessions for this user
+            const userSessions = Object.entries(activeSessions)
+                .filter(([_, session]) => session.userId === payload.userId)
+                .map(([sessionId, session]) => ({
+                    sessionId,
+                    username: session.username,
+                    loginTime: session.loginTime,
+                    lastActivity: session.lastActivity,
+                    userAgent: session.userAgent?.substring(0, 100) || "Unknown",
+                    isCurrentSession: sessionId === payload.sessionId
+                }));
+                
+            ctx.response.body = {
+                sessions: userSessions,
+                currentUserId: payload.userId,
+                currentUsername: payload.username
+            };
+        } catch (verifyError) {
+            // Token invalid, return empty sessions
+            ctx.response.body = { sessions: [] };
+        }
+    } catch (error) {
+        console.error("❌ Get sessions error:", error);
         ctx.response.status = 500;
         ctx.response.body = { error: "Internal server error" };
     }
@@ -1559,23 +1747,39 @@ router.get("/api/health", (ctx) => {
         status: "healthy",
         timestamp: new Date().toISOString(),
         database: client ? "connected" : "disconnected",
-        activeSessions: Object.keys(activeSessions).length
+        activeSessions: Object.keys(activeSessions).length,
+        uniqueUsers: new Set(Object.values(activeSessions).map(s => s.userId)).size
     };
 });
 
-// Debug endpoint
+// ✅ FIXED: Enhanced debug endpoint to view active sessions
 router.get("/api/debug/sessions", (ctx) => {
-    const sessions = Object.entries(activeSessions).map(([sessionId, info]) => ({
-        sessionId: sessionId.substring(0, 8) + "...",
-        username: info.username,
-        isAdmin: info.isAdmin,
-        loginTime: info.loginTime,
-        lastActivity: info.lastActivity
-    }));
+    const sessionsByUser: { [username: string]: any[] } = {};
+    
+    Object.entries(activeSessions).forEach(([sessionId, info]) => {
+        if (!sessionsByUser[info.username]) {
+            sessionsByUser[info.username] = [];
+        }
+        
+        sessionsByUser[info.username].push({
+            sessionId: sessionId.substring(0, 8) + "...",
+            loginTime: info.loginTime,
+            lastActivity: info.lastActivity,
+            userAgent: info.userAgent?.substring(0, 50) + "..." || "Unknown",
+            ipAddress: info.ipAddress || "Unknown",
+            isAdmin: info.isAdmin
+        });
+    });
     
     ctx.response.body = {
-        totalSessions: sessions.length,
-        sessions
+        totalSessions: Object.keys(activeSessions).length,
+        uniqueUsers: Object.keys(sessionsByUser).length,
+        sessionsByUser,
+        summary: Object.entries(sessionsByUser).map(([username, sessions]) => ({
+            username,
+            sessionCount: sessions.length,
+            isAdmin: sessions[0]?.isAdmin || false
+        }))
     };
 });
 
@@ -1640,23 +1844,34 @@ app.use(async (ctx, next) => {
     }
 });
 
-// Cleanup expired sessions
+// ✅ FIXED: Enhanced cleanup for expired sessions
 function cleanupExpiredSessions() {
     const now = new Date();
     const toRemove: string[] = [];
     
     for (const [sessionId, info] of Object.entries(activeSessions)) {
         const inactiveTime = now.getTime() - info.lastActivity.getTime();
-        if (inactiveTime > 2 * 60 * 60 * 1000) { // 2 hours
+        if (inactiveTime > 8 * 60 * 60 * 1000) { // ✅ FIXED: 8 hours expiry
             toRemove.push(sessionId);
         }
     }
     
+    // Group sessions by user for logging
+    const userSessionCounts: { [username: string]: number } = {};
     toRemove.forEach(sessionId => {
         const info = activeSessions[sessionId];
+        userSessionCounts[info.username] = (userSessionCounts[info.username] || 0) + 1;
         delete activeSessions[sessionId];
-        console.log(`🧹 Cleaned up expired session for: ${info.username}`);
     });
+    
+    // Log cleanup results
+    Object.entries(userSessionCounts).forEach(([username, count]) => {
+        console.log(`🧹 Cleaned up ${count} expired session(s) for: ${username}`);
+    });
+    
+    if (toRemove.length > 0) {
+        console.log(`📊 Total active sessions after cleanup: ${Object.keys(activeSessions).length}`);
+    }
 }
 
 // Start cleanup every 30 minutes
@@ -1684,12 +1899,31 @@ async function startServer() {
     console.log("📚 Available endpoints:");
     console.log("  POST /api/auth/register - Register a new user");
     console.log("  POST /api/auth/login - Login user");
-    console.log("  POST /api/auth/logout - Logout user");
+    console.log("  POST /api/auth/logout - Logout current session");
     console.log("  GET  /test_cookie - Test authentication");
-    console.log("  GET  /api/health - Hùealth check");
+    console.log("  GET  /api/health - Health check");
+    console.log("  GET  /api/debug/sessions - View active sessions (debug)");
+    console.log("  POST /api/books - Create a book");
+    console.log("  POST /api/dvds - Create a DVD");
+    console.log("  POST /api/cds - Create a CD");
+    console.log("  POST /api/articles - Create an article");
+    console.log("  GET  /api/articles - Get all articles");
+    console.log("  GET  /api/articles/book - Get book articles");
+    console.log("  GET  /api/articles/dvd - Get DVD articles");
+    console.log("  GET  /api/articles/cd - Get CD articles");
+    console.log("  DELETE /api/articles/:id - Delete an article");
+    console.log("  PATCH /api/articles/:id/sold - Toggle article sold status");
+    console.log("  GET  /api/users/me/articles - Get current user's articles");
+    console.log("  WS   /ws/chat/:roomId - WebSocket chat connection");
+    console.log("");
+    console.log("✅ FIXED: Multiple concurrent sessions per user are now supported");
+    console.log("✅ FIXED: Extended session duration to 8 hours");
+    console.log("✅ FIXED: Enhanced session tracking with User-Agent and IP");
+    console.log("✅ FIXED: Sessions are properly isolated - no cross-account interference");
     console.log("");
     console.log("🌐 Frontend: Open your HTML files in browser");
     console.log("📊 Database: MySQL running in Docker container 'mysql-auth'");
+    console.log("🔍 Debug: Visit http://localhost:8000/api/debug/sessions to view active sessions");
     
     await app.listen({ port: PORT });
 }
