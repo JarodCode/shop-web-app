@@ -5,6 +5,8 @@ import { Client } from "https://deno.land/x/mysql@v2.12.1/mod.ts";
 import * as bcrypt from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
 import { create, verify } from "https://deno.land/x/djwt@v3.0.1/mod.ts";
 import { WebSocketServer } from "https://deno.land/x/websocket@v0.1.4/mod.ts";
+import { ensureDir } from "https://deno.land/std@0.208.0/fs/mod.ts";
+import { extname } from "https://deno.land/std@0.208.0/path/mod.ts";
 
 // Load environment variables
 const DB_HOST = "127.0.0.1";
@@ -15,6 +17,14 @@ const DB_PORT = parseInt("3306");
 const JWT_SECRET = "default-secret";
 const PORT = parseInt("8000");
 
+const UPLOADS_DIR = "./uploads";
+await ensureDir(UPLOADS_DIR);
+try {
+  await ensureDir(UPLOADS_DIR);
+  console.log("📁 Uploads directory created/verified");
+} catch (error) {
+  console.log("⚠️ Uploads directory issue:", error.message);
+}
 
 console.log("🔧 Starting server with configuration:");
 console.log(`   Database: ${DB_HOST}:${DB_PORT}/${DB_NAME}`);
@@ -501,6 +511,47 @@ router.post("/api/auth/register", async (ctx) => {
   }
 });
 
+router.get("/uploads/:filename", async (ctx) => {
+  try {
+      const filename = ctx.params.filename;
+      const filePath = `${UPLOADS_DIR}/${filename}`;
+      
+      console.log("🖼️ Serving file:", filePath);
+      
+      try {
+          const fileContent = await Deno.readFile(filePath);
+          
+          // Set appropriate content type
+          let contentType = "image/jpeg";
+          if (filename.toLowerCase().endsWith('.png')) {
+              contentType = "image/png";
+          } else if (filename.toLowerCase().endsWith('.gif')) {
+              contentType = "image/gif";
+          } else if (filename.toLowerCase().endsWith('.webp')) {
+              contentType = "image/webp";
+          }
+          
+          // ADD CORS headers to allow cross-origin image loading
+          ctx.response.headers.set("Content-Type", contentType);
+          ctx.response.headers.set("Cache-Control", "public, max-age=86400");
+          ctx.response.headers.set("Access-Control-Allow-Origin", "*");
+          ctx.response.headers.set("Access-Control-Allow-Methods", "GET");
+          ctx.response.headers.set("Access-Control-Allow-Headers", "Content-Type");
+          
+          ctx.response.body = fileContent;
+          
+      } catch (fileError) {
+          console.log("❌ File not found:", filePath);
+          ctx.response.status = 404;
+          ctx.response.body = { error: "File not found" };
+      }
+      
+  } catch (error) {
+      console.error("❌ File serving error:", error);
+      ctx.response.status = 500;
+      ctx.response.body = { error: "Server error" };
+  }
+});
 // Login endpoint
 router.post("/api/auth/login", async (ctx) => {
   try {
@@ -684,66 +735,232 @@ router.post("/api/cds", authMiddleware, async (ctx) => {
 
 // Create an article
 router.post("/api/articles", authMiddleware, async (ctx) => {
-    try {
-      const body = await ctx.request.body();
-      const { item_type, item_id, description, price, picture_url } = await body.value;
+  try {
       const tokenData = ctx.state.tokenData as JWTPayload;
-  
+      const body = ctx.request.body();
+      
+      let item_type: string = '';
+      let item_id: number = 0;
+      let description: string = '';
+      let price: number = 0;
+      let picture_url: string = '';
+
+      console.log("📝 Request body type:", body.type);
+
+      if (body.type === "form-data") {
+          console.log("📁 Processing form data with potential file upload...");
+          
+          try {
+              const formData = await body.value.read();
+              console.log("📋 Form data received");
+              
+              // Extract form fields
+              if (formData.fields) {
+                  item_type = formData.fields.item_type as string || '';
+                  item_id = parseInt(formData.fields.item_id as string || '0');
+                  description = formData.fields.description as string || '';
+                  price = parseFloat(formData.fields.price as string || '0');
+                  picture_url = formData.fields.picture_url as string || '';
+                  
+                  console.log("📋 Form fields:", { item_type, item_id, description, price });
+              }
+
+              // Handle file upload
+              if (formData.files && formData.files.length > 0) {
+                  console.log("📁 Files found:", formData.files.length);
+                  
+                  const uploadedFile = formData.files.find(f => f.name === 'picture');
+                  
+                  if (uploadedFile) {
+                      console.log("📁 Processing uploaded file:", uploadedFile.originalName);
+                      
+                      try {
+                          // Generate unique filename
+                          const originalName = uploadedFile.originalName || 'upload.jpg';
+                          const uniqueFileName = generateUniqueFileName(originalName);
+                          const targetPath = `${UPLOADS_DIR}/${uniqueFileName}`;
+                          
+                          console.log("📁 Saving file to:", targetPath);
+                          
+                          // Read the temporary file and write to our uploads directory
+                          if (uploadedFile.tempFile) {
+                              const fileContent = await Deno.readFile(uploadedFile.tempFile);
+                              await Deno.writeFile(targetPath, fileContent);
+                              
+                              // Set picture URL
+                              picture_url = `http://localhost:8000/uploads/${uniqueFileName}`;
+                              
+                              console.log("✅ File saved successfully:", picture_url);
+                          } else if (uploadedFile.content) {
+                              // Alternative: if content is directly available
+                              await Deno.writeFile(targetPath, uploadedFile.content);
+                              picture_url = `http://localhost:8000/uploads/${uniqueFileName}`;
+                              
+                              console.log("✅ File saved successfully (from content):", picture_url);
+                          } else {
+                              throw new Error("No file content available");
+                          }
+                          
+                      } catch (fileError) {
+                          console.error("❌ File save error:", fileError);
+                          ctx.response.status = 500;
+                          ctx.response.body = { error: "Failed to save uploaded file: " + fileError.message };
+                          return;
+                      }
+                  }
+              } else {
+                  console.log("📁 No files in upload");
+              }
+              
+          } catch (formError) {
+              console.error("❌ Form data processing error:", formError);
+              ctx.response.status = 400;
+              ctx.response.body = { error: "Failed to process form data: " + formError.message };
+              return;
+          }
+          
+      } else if (body.type === "json") {
+          // Handle JSON data (URL method or fallback)
+          console.log("📄 Processing JSON data...");
+          const jsonData = await body.value;
+          item_type = jsonData.item_type;
+          item_id = jsonData.item_id;
+          description = jsonData.description;
+          price = jsonData.price;
+          picture_url = jsonData.picture_url || '';
+      } else {
+          console.log("❌ Unsupported body type:", body.type);
+          ctx.response.status = 400;
+          ctx.response.body = { error: "Unsupported request format" };
+          return;
+      }
+
+      // Validation
       if (!item_type || !item_id || !price) {
-        ctx.response.status = 400;
-        ctx.response.body = { error: "Item type, item ID, and price are required" };
-        return;
+          console.log("❌ Validation failed:", { item_type, item_id, price });
+          ctx.response.status = 400;
+          ctx.response.body = { error: "Item type, item ID, and price are required" };
+          return;
       }
-  
+
       if (!['book', 'dvd', 'cd'].includes(item_type)) {
-        ctx.response.status = 400;
-        ctx.response.body = { error: "Item type must be 'book', 'dvd', or 'cd'" };
-        return;
+          ctx.response.status = 400;
+          ctx.response.body = { error: "Item type must be 'book', 'dvd', or 'cd'" };
+          return;
       }
-  
+
       // Verify that the item exists
       let itemExists = false;
       if (item_type === 'book') {
-        const books = await client.query("SELECT id FROM books WHERE id = ?", [item_id]);
-        itemExists = books.length > 0;
+          const books = await client.query("SELECT id FROM books WHERE id = ?", [item_id]);
+          itemExists = books.length > 0;
       } else if (item_type === 'dvd') {
-        const dvds = await client.query("SELECT id FROM dvds WHERE id = ?", [item_id]);
-        itemExists = dvds.length > 0;
+          const dvds = await client.query("SELECT id FROM dvds WHERE id = ?", [item_id]);
+          itemExists = dvds.length > 0;
       } else if (item_type === 'cd') {
-        const cds = await client.query("SELECT id FROM cds WHERE id = ?", [item_id]);
-        itemExists = cds.length > 0;
+          const cds = await client.query("SELECT id FROM cds WHERE id = ?", [item_id]);
+          itemExists = cds.length > 0;
       }
-  
+
       if (!itemExists) {
-        ctx.response.status = 404;
-        ctx.response.body = { error: "Item not found" };
-        return;
+          ctx.response.status = 404;
+          ctx.response.body = { error: "Item not found" };
+          return;
       }
-  
+
+      // Create the article
       const result = await client.execute(
-        "INSERT INTO articles (user_id, item_type, item_id, description, price, picture_url) VALUES (?, ?, ?, ?, ?, ?)",
-        [tokenData.userId, item_type, item_id, description || null, price, picture_url || null]
+          "INSERT INTO articles (user_id, item_type, item_id, description, price, picture_url) VALUES (?, ?, ?, ?, ?, ?)",
+          [tokenData.userId, item_type, item_id, description || null, price, picture_url || null]
       );
-  
+
+      console.log(`✅ Article created successfully: ID ${result.lastInsertId}, Picture: ${picture_url || 'none'}`);
+
       ctx.response.status = 201;
       ctx.response.body = {
-        message: "Article created successfully",
-        article: {
-          id: result.lastInsertId,
-          user_id: tokenData.userId,
-          item_type,
-          item_id,
-          description,
-          price,
-          picture_url,
-        },
+          message: "Article created successfully",
+          article: {
+              id: result.lastInsertId,
+              user_id: tokenData.userId,
+              item_type,
+              item_id,
+              description,
+              price,
+              picture_url,
+          },
       };
-    } catch (error) {
+      
+  } catch (error) {
       console.error("❌ Article creation error:", error);
       ctx.response.status = 500;
-      ctx.response.body = { error: "Internal server error" };
-    }
+      ctx.response.body = { error: "Internal server error: " + error.message };
+  }
 });
+
+router.get("/uploads/:filename", async (ctx) => {
+  try {
+      const filename = ctx.params.filename;
+      const filePath = `${UPLOADS_DIR}/${filename}`;
+      
+      // Check if file exists
+      try {
+          const fileInfo = await Deno.stat(filePath);
+          if (!fileInfo.isFile) {
+              ctx.response.status = 404;
+              ctx.response.body = { error: "File not found" };
+              return;
+          }
+      } catch {
+          ctx.response.status = 404;
+          ctx.response.body = { error: "File not found" };
+          return;
+      }
+
+      // Determine content type based on file extension
+      const ext = extname(filename).toLowerCase();
+      const contentTypes: { [key: string]: string } = {
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.png': 'image/png',
+          '.gif': 'image/gif',
+          '.webp': 'image/webp'
+      };
+
+      const contentType = contentTypes[ext] || 'application/octet-stream';
+      
+      // Read and serve the file
+      const fileContent = await Deno.readFile(filePath);
+      
+      ctx.response.headers.set("Content-Type", contentType);
+      ctx.response.headers.set("Cache-Control", "public, max-age=31536000"); // Cache for 1 year
+      ctx.response.body = fileContent;
+  } catch (error) {
+      console.error("❌ File serving error:", error);
+      ctx.response.status = 500;
+      ctx.response.body = { error: "Internal server error" };
+  }
+});
+
+// Add cleanup function for old files (optional)
+export async function cleanupOldFiles(daysOld: number = 30) {
+  try {
+      const cutoffTime = Date.now() - (daysOld * 24 * 60 * 60 * 1000);
+      
+      for await (const dirEntry of Deno.readDir(UPLOADS_DIR)) {
+          if (dirEntry.isFile) {
+              const filePath = `${UPLOADS_DIR}/${dirEntry.name}`;
+              const fileInfo = await Deno.stat(filePath);
+              
+              if (fileInfo.mtime && fileInfo.mtime.getTime() < cutoffTime) {
+                  console.log(`🗑️ Cleaning up old file: ${dirEntry.name}`);
+                  await Deno.remove(filePath);
+              }
+          }
+      }
+  } catch (error) {
+      console.error("❌ Cleanup error:", error);
+  }
+}
 
 router.get('/test_cookie', authMiddleware, (ctx) => {
   const tokenData = ctx.state.tokenData;
@@ -1439,6 +1656,38 @@ async function handleChatWebSocket(ctx: any) {
   }
 }
 
+function generateUniqueFileName(originalName: string): string {
+  const timestamp = Date.now();
+  const randomId = Math.random().toString(36).substring(2, 8);
+  const extension = originalName.includes('.') ? '.' + originalName.split('.').pop() : '.jpg';
+  return `${timestamp}_${randomId}${extension}`;
+}
+
+async function saveUploadedFile(file: File): Promise<string> {
+  const fileName = generateUniqueFileName(file.name);
+  const filePath = `${UPLOADS_DIR}/${fileName}`;
+  
+  const arrayBuffer = await file.arrayBuffer();
+  const uint8Array = new Uint8Array(arrayBuffer);
+  
+  await Deno.writeFile(filePath, uint8Array);
+  
+  // Return the URL path that can be used to access the file
+  return `/uploads/${fileName}`;
+}
+
+function isValidImageType(mimeType: string): boolean {
+  const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+  return validTypes.includes(mimeType.toLowerCase());
+}
+
+function isValidFileSize(size: number): boolean {
+  const maxSize = 5 * 1024 * 1024; // 5MB
+  return size <= maxSize;
+}
+
+
+
 // Also update the ChatManager class to handle string room IDs
 
 
@@ -1766,6 +2015,7 @@ router.delete("/api/articles/:id", authMiddleware, async (ctx) => {
       const articleId = parseInt(ctx.params.id);
       const tokenData = ctx.state.tokenData as JWTPayload;
       const userId = tokenData.userId;
+      const isAdmin = tokenData.isAdmin || false;
       
       if (!articleId || isNaN(articleId)) {
           ctx.response.status = 400;
@@ -1773,30 +2023,33 @@ router.delete("/api/articles/:id", authMiddleware, async (ctx) => {
           return;
       }
       
-      // Check if the article exists and belongs to the user
+      // Check if the article exists
       const articles = await client.query(
-          "SELECT * FROM articles WHERE id = ? AND user_id = ?",
-          [articleId, userId]
+          "SELECT * FROM articles WHERE id = ?",
+          [articleId]
       );
       
       if (articles.length === 0) {
-          // Check if article exists but belongs to someone else
-          const articleExists = await client.query(
-              "SELECT * FROM articles WHERE id = ?",
-              [articleId]
-          );
-          
-          if (articleExists.length > 0) {
-              ctx.response.status = 403;
-              ctx.response.body = { error: "Forbidden: You can only delete your own articles" };
-          } else {
-              ctx.response.status = 404;
-              ctx.response.body = { error: "Article not found" };
-          }
+          ctx.response.status = 404;
+          ctx.response.body = { error: "Article not found" };
           return;
       }
       
       const article = articles[0];
+      
+      // Check permissions: either owner OR admin
+      const isOwner = article.user_id === userId;
+      
+      if (!isOwner && !isAdmin) {
+          ctx.response.status = 403;
+          ctx.response.body = { error: "Forbidden: You can only delete your own articles" };
+          return;
+      }
+      
+      // Log admin deletion for auditing
+      if (isAdmin && !isOwner) {
+          console.log(`🚨 ADMIN DELETION: User ${tokenData.username} (ID: ${userId}) is deleting article ${articleId} owned by user ${article.user_id}`);
+      }
       
       // Delete the article first (this will cascade delete related chat messages due to foreign key constraint)
       await client.execute(
@@ -1833,7 +2086,11 @@ router.delete("/api/articles/:id", authMiddleware, async (ctx) => {
           console.log(`ℹ️ Keeping ${article.item_type} with ID ${article.item_id} (referenced by other articles)`);
       }
       
-      console.log(`🗑️ Article ${articleId} deleted by user ${tokenData.username}`);
+      if (isAdmin && !isOwner) {
+          console.log(`✅ ADMIN DELETION COMPLETED: Article ${articleId} deleted by admin ${tokenData.username}`);
+      } else {
+          console.log(`🗑️ Article ${articleId} deleted by owner ${tokenData.username}`);
+      }
       
       ctx.response.status = 200;
       ctx.response.body = {
@@ -1842,7 +2099,8 @@ router.delete("/api/articles/:id", authMiddleware, async (ctx) => {
               id: articleId,
               item_type: article.item_type,
               item_id: article.item_id
-          }
+          },
+          deletedBy: isAdmin && !isOwner ? "admin" : "owner"
       };
   } catch (error) {
       console.error("❌ Article deletion error:", error);
@@ -1857,6 +2115,7 @@ router.patch("/api/articles/:id/sold", authMiddleware, async (ctx) => {
       const articleId = parseInt(ctx.params.id);
       const tokenData = ctx.state.tokenData as JWTPayload;
       const userId = tokenData.userId;
+      const isAdmin = tokenData.isAdmin || false;
       
       if (!articleId || isNaN(articleId)) {
           ctx.response.status = 400;
@@ -1864,28 +2123,48 @@ router.patch("/api/articles/:id/sold", authMiddleware, async (ctx) => {
           return;
       }
       
-      // Check if the article exists and belongs to the user
+      // Check if the article exists
       const articles = await client.query(
-          "SELECT * FROM articles WHERE id = ? AND user_id = ?",
-          [articleId, userId]
+          "SELECT * FROM articles WHERE id = ?",
+          [articleId]
       );
       
       if (articles.length === 0) {
           ctx.response.status = 404;
-          ctx.response.body = { error: "Article not found or you don't have permission to modify it" };
+          ctx.response.body = { error: "Article not found" };
+          return;
+      }
+      
+      const article = articles[0];
+      
+      // Check permissions: either owner OR admin
+      const isOwner = article.user_id === userId;
+      
+      if (!isOwner && !isAdmin) {
+          ctx.response.status = 403;
+          ctx.response.body = { error: "Forbidden: You can only modify your own articles" };
           return;
       }
       
       // Toggle the sold status
-      const currentStatus = articles[0].is_sold;
+      const currentStatus = article.is_sold;
       const newStatus = !currentStatus;
+      
+      // Log admin action for auditing
+      if (isAdmin && !isOwner) {
+          console.log(`🚨 ADMIN ACTION: User ${tokenData.username} (ID: ${userId}) is marking article ${articleId} as ${newStatus ? 'sold' : 'available'} (owned by user ${article.user_id})`);
+      }
       
       await client.execute(
           "UPDATE articles SET is_sold = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
           [newStatus, articleId]
       );
       
-      console.log(`📦 Article ${articleId} marked as ${newStatus ? 'sold' : 'available'} by user ${tokenData.username}`);
+      if (isAdmin && !isOwner) {
+          console.log(`✅ ADMIN ACTION COMPLETED: Article ${articleId} marked as ${newStatus ? 'sold' : 'available'} by admin ${tokenData.username}`);
+      } else {
+          console.log(`📦 Article ${articleId} marked as ${newStatus ? 'sold' : 'available'} by owner ${tokenData.username}`);
+      }
       
       ctx.response.status = 200;
       ctx.response.body = {
@@ -1893,7 +2172,8 @@ router.patch("/api/articles/:id/sold", authMiddleware, async (ctx) => {
           article: {
               id: articleId,
               is_sold: newStatus
-          }
+          },
+          actionBy: isAdmin && !isOwner ? "admin" : "owner"
       };
   } catch (error) {
       console.error("❌ Article status update error:", error);
@@ -1901,7 +2181,6 @@ router.patch("/api/articles/:id/sold", authMiddleware, async (ctx) => {
       ctx.response.body = { error: "Internal server error" };
   }
 });
-
 // Get all articles for the current user
 router.get("/api/users/me/articles", authMiddleware, async (ctx) => {
   try {

@@ -6,6 +6,7 @@ class ArticleDetailsApp {
         this.article = null;
         this.currentUserId = null;
         this.currentUsername = null;
+        this.isAdmin = false; // Add admin status tracking
         this.init();
     }
 
@@ -30,6 +31,8 @@ class ArticleDetailsApp {
                 const data = await response.json();
                 this.currentUserId = data.token_data.userId;
                 this.currentUsername = data.token_data.username;
+                this.isAdmin = data.token_data.isAdmin || false; // Get admin status
+                console.log(`Current user: ${this.currentUsername}, Admin: ${this.isAdmin}`);
             } else {
                 console.log('User not authenticated');
             }
@@ -193,6 +196,7 @@ class ArticleDetailsApp {
         this.displaySellerInfo();
         this.displayArticleMetadata();
         this.updateContactButton();
+        this.addAdminControls(); // Add admin controls if user is admin
 
         const shareUrl = document.getElementById('shareUrl');
         if (shareUrl) {
@@ -241,6 +245,237 @@ class ArticleDetailsApp {
             contactBtn.textContent = '💬 Chat with Seller';
             contactBtn.title = 'Start a chat with the seller';
             contactBtn.dataset.action = 'chat';
+        }
+    }
+
+    addAdminControls() {
+        // Only add admin controls if user is admin and not the owner
+        if (!this.isAdmin || (this.currentUserId && this.article.user_id === this.currentUserId)) {
+            return;
+        }
+
+        console.log('Adding admin controls for article', this.articleId);
+
+        // Check if admin controls already exist
+        let adminControls = document.getElementById('adminControls');
+        if (adminControls) {
+            adminControls.remove();
+        }
+
+        // Create admin controls section
+        adminControls = document.createElement('div');
+        adminControls.id = 'adminControls';
+        adminControls.className = 'admin-controls';
+        adminControls.innerHTML = `
+            <div class="admin-header">
+                <h3>👑 Admin Controls</h3>
+                <span class="admin-badge">Administrator</span>
+            </div>
+            <div class="admin-actions">
+                <button id="adminDeleteBtn" class="btn-danger admin-btn">
+                    🗑️ Delete Article (Admin)
+                </button>
+                <button id="adminToggleSoldBtn" class="btn-secondary admin-btn">
+                    ${this.article.is_sold ? '✅ Mark Available (Admin)' : '💰 Mark as Sold (Admin)'}
+                </button>
+            </div>
+            <div class="admin-warning">
+                ⚠️ Admin actions will be logged and are permanent
+            </div>
+        `;
+
+        // Add styles for admin controls
+        const style = document.createElement('style');
+        style.textContent = `
+            .admin-controls {
+                background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+                color: white;
+                padding: 20px;
+                border-radius: 10px;
+                margin: 20px 0;
+                border: 2px solid #fca5a5;
+                box-shadow: 0 4px 6px rgba(220, 38, 38, 0.3);
+            }
+            
+            .admin-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 15px;
+            }
+            
+            .admin-header h3 {
+                margin: 0;
+                font-size: 1.2em;
+                color: white;
+            }
+            
+            .admin-badge {
+                background: rgba(255, 255, 255, 0.2);
+                padding: 4px 12px;
+                border-radius: 20px;
+                font-size: 0.85em;
+                font-weight: bold;
+            }
+            
+            .admin-actions {
+                display: flex;
+                gap: 10px;
+                margin-bottom: 15px;
+                flex-wrap: wrap;
+            }
+            
+            .admin-btn {
+                padding: 10px 16px;
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                min-width: 150px;
+                font-size: 0.9em;
+            }
+            
+            .btn-danger {
+                background: #ffffff;
+                color: #dc2626;
+                border: 2px solid #dc2626;
+            }
+            
+            .btn-danger:hover {
+                background: #dc2626;
+                color: white;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 8px rgba(220, 38, 38, 0.4);
+            }
+            
+            .admin-warning {
+                background: rgba(255, 255, 255, 0.1);
+                padding: 10px;
+                border-radius: 6px;
+                font-size: 0.85em;
+                text-align: center;
+                border-left: 4px solid #fbbf24;
+            }
+            
+            @media (max-width: 768px) {
+                .admin-actions {
+                    flex-direction: column;
+                }
+                
+                .admin-btn {
+                    width: 100%;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Insert admin controls after article actions
+        const articleActions = document.querySelector('.article-actions');
+        if (articleActions) {
+            articleActions.parentNode.insertBefore(adminControls, articleActions.nextSibling);
+        }
+
+        // Add event listeners for admin buttons
+        const adminDeleteBtn = document.getElementById('adminDeleteBtn');
+        const adminToggleSoldBtn = document.getElementById('adminToggleSoldBtn');
+
+        if (adminDeleteBtn) {
+            adminDeleteBtn.addEventListener('click', () => this.adminDeleteArticle());
+        }
+
+        if (adminToggleSoldBtn) {
+            adminToggleSoldBtn.addEventListener('click', () => this.adminToggleSoldStatus());
+        }
+    }
+
+    async adminDeleteArticle() {
+        const title = this.article.book_info?.title || 
+                     this.article.dvd_info?.title || 
+                     this.article.cd_info?.author || 
+                     this.article.item_info?.title || 
+                     this.article.item_info?.author || 
+                     'this article';
+                     
+        const sellerUsername = this.article.seller_username;
+        
+        if (!confirm(`⚠️ ADMIN ACTION ⚠️\n\nAre you sure you want to delete "${title}" by ${sellerUsername}?\n\nThis action:\n- Cannot be undone\n- Will delete all related chat messages\n- Will be logged as an admin action\n\nProceed with deletion?`)) {
+            return;
+        }
+
+        // Double confirmation for admin deletions
+        if (!confirm(`FINAL CONFIRMATION\n\nYou are about to permanently delete this article as an administrator.\n\nClick OK to proceed with deletion.`)) {
+            return;
+        }
+
+        try {
+            console.log(`Admin attempting to delete article ${this.articleId}`);
+            
+            const response = await fetch(`http://localhost:8000/api/articles/${this.articleId}`, {
+                method: 'DELETE',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+            }
+
+            console.log('Article deleted successfully by admin');
+            alert(`✅ Admin Action Completed\n\nArticle "${title}" has been deleted successfully.\n\nRedirecting to marketplace...`);
+            
+            // Redirect to marketplace
+            window.location.href = 'marketplace.html';
+
+        } catch (error) {
+            console.error('Error deleting article (admin):', error);
+            alert(`❌ Admin Deletion Failed\n\n${error.message}\n\nPlease try again or contact system administrator.`);
+        }
+    }
+
+    async adminToggleSoldStatus() {
+        const title = this.article.book_info?.title || 
+                     this.article.dvd_info?.title || 
+                     this.article.cd_info?.author || 
+                     this.article.item_info?.title || 
+                     this.article.item_info?.author || 
+                     'this article';
+                     
+        const sellerUsername = this.article.seller_username;
+        const newStatus = this.article.is_sold ? 'available' : 'sold';
+        
+        if (!confirm(`⚠️ ADMIN ACTION ⚠️\n\nMark "${title}" by ${sellerUsername} as ${newStatus}?\n\nThis action will be logged as an admin override.`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`http://localhost:8000/api/articles/${this.articleId}/sold`, {
+                method: 'PATCH',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            this.article.is_sold = data.article.is_sold;
+            
+            // Refresh the display
+            this.displayArticleDetails();
+            
+            const status = data.article.is_sold ? 'sold' : 'available';
+            alert(`✅ Admin Action Completed\n\nArticle marked as ${status} successfully.`);
+
+        } catch (error) {
+            console.error('Error updating article status (admin):', error);
+            alert('❌ Failed to update article status. Please try again.');
         }
     }
 

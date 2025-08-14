@@ -54,7 +54,7 @@
                 <div class="item-preview" id="itemPreview"></div>
                 
                 <div class="form-container">
-                    <form id="articleForm">
+                    <form id="articleForm" enctype="multipart/form-data">
                         <div class="form-group">
                             <label for="articleDescription">Description</label>
                             <textarea id="articleDescription" name="description" rows="4" placeholder="Describe the condition and any additional details about the item..."></textarea>
@@ -66,9 +66,50 @@
                                 <input type="number" id="articlePrice" name="price" step="0.01" min="0" required>
                             </div>
                         </div>
+                        
+                        <!-- Updated Picture Upload Section -->
                         <div class="form-group">
-                            <label for="articlePicture">Picture URL</label>
-                            <input type="url" id="articlePicture" name="picture_url" placeholder="https://example.com/image.jpg">
+                            <label for="pictureUpload">Upload Picture</label>
+                            <div class="picture-upload-container">
+                                <div class="upload-options">
+                                    <label class="upload-tab active" data-tab="file">
+                                        <input type="radio" name="picture-method" value="file" checked>
+                                        📁 Upload File
+                                    </label>
+                                    <label class="upload-tab" data-tab="url">
+                                        <input type="radio" name="picture-method" value="url">
+                                        🔗 Use URL
+                                    </label>
+                                </div>
+                                
+                                <!-- File Upload Section -->
+                                <div class="upload-section" id="fileUploadSection">
+                                    <div class="file-upload-area" id="fileUploadArea">
+                                        <input type="file" id="pictureFile" name="picture" accept="image/*" style="display: none;">
+                                        <div class="upload-placeholder" id="uploadPlaceholder">
+                                            <div class="upload-icon">📷</div>
+                                            <p>Click to upload or drag & drop</p>
+                                            <p class="upload-hint">JPG, PNG, GIF up to 5MB</p>
+                                        </div>
+                                        <div class="upload-preview" id="uploadPreview" style="display: none;">
+                                            <img id="previewImage" src="" alt="Preview">
+                                            <div class="preview-info">
+                                                <p id="fileName"></p>
+                                                <p id="fileSize"></p>
+                                                <button type="button" id="removeImage" class="remove-btn">Remove</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- URL Input Section -->
+                                <div class="upload-section" id="urlUploadSection" style="display: none;">
+                                    <input type="url" id="articlePictureUrl" name="picture_url" placeholder="https://example.com/image.jpg">
+                                    <div class="url-preview" id="urlPreview" style="display: none;">
+                                        <img id="urlPreviewImage" src="" alt="URL Preview">
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         
                         <div class="form-actions">
@@ -113,6 +154,9 @@
             </div>
         </div>
     </div>
+
+    <style>
+    </style>
 
     <script src="create_article.js"></script>
 </body>
