@@ -3,20 +3,7 @@
 
 const API_BASE_URL = 'http://localhost:8000';
 
-// Simple token storage
-let currentAuthToken = localStorage.getItem('auth_token');
-let currentUser = null;
-
-try {
-    const storedUser = localStorage.getItem('current_user');
-    if (storedUser) {
-        currentUser = JSON.parse(storedUser);
-    }
-} catch (error) {
-    console.error('Error loading stored user:', error);
-}
-
-// Login function - exactly like your example expects
+// Login function
 async function login(username, password) {
     try {
         console.log(`🔐 Attempting login for: ${username}`);
@@ -26,20 +13,14 @@ async function login(username, password) {
             headers: {
                 'Content-Type': 'application/json'
             },
+            credentials: 'include', // ✅ FIXED: Added credentials include to send/receive cookies
             body: JSON.stringify({ username, password })
         });
         
         const data = await response.json();
         console.log('Login response:', response.status, data);
         
-        if (response.ok && data.auth_token) {
-            // Store token and user info
-            currentAuthToken = data.auth_token;
-            currentUser = data.user;
-            
-            localStorage.setItem('auth_token', currentAuthToken);
-            localStorage.setItem('current_user', JSON.stringify(currentUser));
-            
+        if (response.ok && data.user) {
             console.log(`✅ Login successful for: ${username}`);
             
             return {
@@ -63,28 +44,61 @@ async function login(username, password) {
     }
 }
 
-// Logout function - sends token in body
+// Register function
+async function register(username, password) {
+    try {
+        console.log(`📝 Attempting registration for: ${username}`);
+        
+        const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include', // ✅ FIXED: Added credentials include
+            body: JSON.stringify({ username, password })
+        });
+        
+        const data = await response.json();
+        console.log('Registration response:', response.status, data);
+        
+        if (response.ok && data.user) {
+            console.log(`✅ Registration successful for: ${username}`);
+            
+            return {
+                success: true,
+                user: data.user,
+                message: `Welcome, ${data.user.username}! Registration successful.`
+            };
+        } else {
+            return {
+                success: false,
+                message: data.error || 'Registration failed'
+            };
+        }
+    } catch (error) {
+        console.error('Registration error:', error);
+        return {
+            success: false,
+            message: 'Network error. Please check if the server is running.'
+        };
+    }
+}
+
+// Logout function
 async function logout() {
     try {
-        if (currentAuthToken) {
-            console.log(`👋 Logging out: ${currentUser?.username}`);
-            
-            await fetch(`${API_BASE_URL}/api/auth/logout`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    auth_token: currentAuthToken
-                })
-            });
-        }
+        console.log('👋 Attempting logout...');
         
-        // Clear stored data
-        currentAuthToken = null;
-        currentUser = null;
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('current_user');
+        const response = await fetch(`${API_BASE_URL}/api/auth/logout`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include' // ✅ FIXED: Added credentials include
+        });
+        
+        const data = await response.json();
+        console.log('Logout response:', response.status, data);
         
         return {
             success: true,
@@ -92,12 +106,6 @@ async function logout() {
         };
     } catch (error) {
         console.error('Logout error:', error);
-        // Still clear local data
-        currentAuthToken = null;
-        currentUser = null;
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('current_user');
-        
         return {
             success: true,
             message: 'Logged out (with error)'
@@ -105,181 +113,40 @@ async function logout() {
     }
 }
 
-// Check auth status - sends token in body
+// Check auth status
 async function checkAuthStatus() {
     try {
-        if (!currentAuthToken) {
-            return {
-                isAuthenticated: false,
-                user: null,
-                source: 'no_token'
-            };
-        }
-        
-        const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
-            method: 'POST',
+        const response = await fetch(`${API_BASE_URL}/test_cookie`, {
+            method: 'GET',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                auth_token: currentAuthToken
-            })
+            credentials: 'include' // ✅ FIXED: Added credentials include
         });
         
         if (response.ok) {
             const data = await response.json();
             
-            if (data.user) {
-                // Update stored user info
-                currentUser = data.user;
-                localStorage.setItem('current_user', JSON.stringify(currentUser));
-                
-                return {
-                    isAuthenticated: true,
-                    user: data.user,
-                    source: 'server'
-                };
-            }
-        }
-        
-        // Clear invalid token
-        currentAuthToken = null;
-        currentUser = null;
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('current_user');
-        
-        return {
-            isAuthenticated: false,
-            user: null,
-            source: 'invalid_token'
-        };
-    } catch (error) {
-        console.error('Auth check error:', error);
-        
-        // Use local data as fallback
-        if (currentUser && currentAuthToken) {
             return {
                 isAuthenticated: true,
-                user: currentUser,
-                source: 'local_fallback'
+                user: data.token_data,
+                source: 'server'
+            };
+        } else {
+            return {
+                isAuthenticated: false,
+                user: null,
+                source: 'server_rejected'
             };
         }
-        
+    } catch (error) {
+        console.error('Auth check error:', error);
         return {
             isAuthenticated: false,
             user: null,
             source: 'error'
         };
     }
-}
-
-// Test the token with the fixed endpoint
-async function testToken() {
-    try {
-        if (!currentAuthToken) {
-            console.log('❌ No token to test');
-            return { success: false, message: 'No token available' };
-        }
-        
-        // For the test_cookie endpoint, send token as query parameter
-        const response = await fetch(`${API_BASE_URL}/test_cookie?auth_token=${encodeURIComponent(currentAuthToken)}`);
-        const data = await response.json();
-        
-        console.log('Test response:', response.status, data);
-        
-        if (response.ok) {
-            return { 
-                success: true, 
-                message: 'Token is valid',
-                data: data
-            };
-        } else {
-            return { 
-                success: false, 
-                message: data.error || 'Token test failed'
-            };
-        }
-    } catch (error) {
-        console.error('Token test error:', error);
-        return { 
-            success: false, 
-            message: 'Network error during token test'
-        };
-    }
-}
-
-// Enhanced API function for making authenticated requests
-async function apiRequest(endpoint, data = {}, method = 'POST') {
-    try {
-        const requestData = {
-            ...data,
-            auth_token: currentAuthToken
-        };
-        
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-            method: method,
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(requestData)
-        });
-        
-        return await response.json();
-    } catch (error) {
-        console.error('API request error:', error);
-        throw error;
-    }
-}
-
-// WebSocket connection - sends token in messages like your example
-function connectWebSocket(endpoint) {
-    if (!currentAuthToken) {
-        console.error('No auth token for WebSocket');
-        return null;
-    }
-    
-    const ws = new WebSocket(`ws://localhost:8000${endpoint}`);
-    
-    ws.onopen = function() {
-        console.log('🔌 WebSocket connected');
-        
-        // Send authentication with first message
-        ws.send(JSON.stringify({
-            auth_token: currentAuthToken,
-            type: 'connect'
-        }));
-    };
-    
-    ws.onmessage = function(event) {
-        try {
-            const data = JSON.parse(event.data);
-            
-            if (data.go_to_login) {
-                console.log('❌ WebSocket auth failed');
-                showMessage('Session expired. Please log in again.', 'error');
-                setTimeout(() => {
-                    window.location.href = 'login.html';
-                }, 2000);
-                return;
-            }
-            
-            console.log('📨 WebSocket message:', data);
-            // Handle other message types here
-            
-        } catch (error) {
-            console.error('WebSocket message error:', error);
-        }
-    };
-    
-    ws.onclose = function() {
-        console.log('🔌 WebSocket closed');
-    };
-    
-    ws.onerror = function(error) {
-        console.error('WebSocket error:', error);
-    };
-    
-    return ws;
 }
 
 // Form handlers
@@ -312,32 +179,20 @@ if (registerForm) {
         
         setLoading(submitBtn, true, originalText);
         
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ username, password })
-            });
+        const result = await register(username, password);
+        
+        if (result.success) {
+            showMessage(result.message, 'success');
+            clearForm('registerForm');
             
-            const data = await response.json();
-            
-            if (response.ok) {
-                showMessage('Registration successful! You can now login.', 'success');
-                clearForm('registerForm');
-                
-                setTimeout(() => {
-                    window.location.href = 'login.html';
-                }, 2000);
-            } else {
-                showMessage(data.error || 'Registration failed', 'error');
-            }
-        } catch (error) {
-            showMessage('Registration failed: Network error', 'error');
-        } finally {
-            setLoading(submitBtn, false, originalText);
+            setTimeout(() => {
+                window.location.href = 'profile.html'; // ✅ FIXED: Go directly to profile after registration
+            }, 1000);
+        } else {
+            showMessage(result.message, 'error');
         }
+        
+        setLoading(submitBtn, false, originalText);
     });
 }
 
@@ -365,8 +220,8 @@ if (loginForm) {
         if (result.success) {
             showMessage(result.message, 'success');
             setTimeout(() => {
-                window.location.href = 'profile.html';
-            }, 1000);
+                window.location.href = 'profile.html'; // ✅ FIXED: Go directly to profile after login
+            }, 500); // Shorter delay
         } else {
             showMessage(result.message, 'error');
         }
@@ -424,56 +279,8 @@ function clearForm(formId) {
     }
 }
 
-// Initialize
-document.addEventListener('DOMContentLoaded', function() {
-    // Display current user if logged in
-    if (currentUser) {
-        const userInfoElement = document.getElementById('userInfo');
-        if (userInfoElement) {
-            userInfoElement.innerHTML = `
-                <span>Welcome, <strong>${currentUser.username}</strong></span>
-                ${currentUser.isAdmin ? '<span class="admin-badge">(Admin)</span>' : ''}
-            `;
-        }
-    }
-    
-    // Set up logout button
-    const logoutBtn = document.getElementById('logoutBtn');
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', async function(e) {
-            e.preventDefault();
-            const result = await logout();
-            showMessage(result.message, result.success ? 'success' : 'error');
-            
-            if (result.success) {
-                setTimeout(() => {
-                    window.location.href = 'login.html';
-                }, 1000);
-            }
-        });
-    }
-    
-    // Set up test token button
-    const testTokenBtn = document.getElementById('testTokenBtn');
-    if (testTokenBtn) {
-        testTokenBtn.addEventListener('click', async function(e) {
-            e.preventDefault();
-            const result = await testToken();
-            showMessage(result.message, result.success ? 'success' : 'error');
-            
-            if (result.success) {
-                console.log('Token test data:', result.data);
-            }
-        });
-    }
-});
-
 // Make functions available globally
 window.login = login;
 window.logout = logout;
+window.register = register;
 window.checkAuthStatus = checkAuthStatus;
-window.testToken = testToken;
-window.connectWebSocket = connectWebSocket;
-window.apiRequest = apiRequest;
-window.getCurrentToken = () => currentAuthToken;
-window.getCurrentUser = () => currentUser;

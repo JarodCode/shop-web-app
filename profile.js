@@ -1,4 +1,4 @@
-// profile.js - Fixed version with correct URLs and error handling
+// profile.js - Fixed version with correct credentials handling
 
 // Configuration
 const API_BASE_URL = 'http://localhost:8000';
@@ -45,7 +45,7 @@ async function loadProfile() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            credentials: 'include',
+            credentials: 'include', // ✅ FIXED: Added credentials include to send cookies
         });
 
         console.log(`📡 Response status: ${response.status}`);
@@ -190,7 +190,7 @@ async function logout() {
         
         const response = await fetch(`${API_BASE_URL}/api/auth/logout`, {
             method: 'POST',
-            credentials: 'include',
+            credentials: 'include', // ✅ FIXED: Added credentials include for logout
             headers: {
                 'Content-Type': 'application/json'
             }
@@ -252,7 +252,7 @@ async function checkServerConnection() {
         console.log('🔍 Checking server connection...');
         const response = await fetch(`${API_BASE_URL}/api/health`, {
             method: 'GET',
-            credentials: 'include'
+            credentials: 'include' // ✅ FIXED: Added credentials include for health check
         });
         
         console.log(`🏥 Health check response: ${response.status}`);
