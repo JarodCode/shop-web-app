@@ -1,6 +1,5 @@
 let selectedItemType = null;
 let createdItemId = null;
-let selectedFile = null;
 
 // DOM elements
 const itemCreationSection = document.getElementById('itemCreationSection');
@@ -19,20 +18,9 @@ const cdTypeBtn = document.getElementById('cdTypeBtn');
 const itemForm = document.getElementById('itemForm');
 const articleForm = document.getElementById('articleForm');
 
-// Picture upload elements
-const fileUploadArea = document.getElementById('fileUploadArea');
-const pictureFile = document.getElementById('pictureFile');
-const uploadPlaceholder = document.getElementById('uploadPlaceholder');
-const uploadPreview = document.getElementById('uploadPreview');
-const previewImage = document.getElementById('previewImage');
-const fileName = document.getElementById('fileName');
-const fileSize = document.getElementById('fileSize');
-const removeImage = document.getElementById('removeImage');
-
 // Initialize event listeners
 document.addEventListener('DOMContentLoaded', function() {
     setupEventListeners();
-    setupPictureUpload();
 });
 
 function setupEventListeners() {
@@ -84,157 +72,6 @@ function setupEventListeners() {
     document.getElementById('dismissErrorBtn').addEventListener('click', () => {
         errorMessage.style.display = 'none';
     });
-}
-
-function setupPictureUpload() {
-    // Upload method tabs
-    const uploadTabs = document.querySelectorAll('.upload-tab');
-    const fileUploadSection = document.getElementById('fileUploadSection');
-    const urlUploadSection = document.getElementById('urlUploadSection');
-    const articlePictureUrl = document.getElementById('articlePictureUrl');
-    const urlPreview = document.getElementById('urlPreview');
-    const urlPreviewImage = document.getElementById('urlPreviewImage');
-
-    uploadTabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            const method = tab.dataset.tab;
-            
-            // Update active tab
-            uploadTabs.forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            
-            // Show/hide sections
-            if (method === 'file') {
-                fileUploadSection.style.display = 'block';
-                urlUploadSection.style.display = 'none';
-            } else {
-                fileUploadSection.style.display = 'none';
-                urlUploadSection.style.display = 'block';
-            }
-        });
-    });
-
-    // File upload handling
-    fileUploadArea.addEventListener('click', () => {
-        pictureFile.click();
-    });
-
-    fileUploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        fileUploadArea.classList.add('dragover');
-    });
-
-    fileUploadArea.addEventListener('dragleave', (e) => {
-        e.preventDefault();
-        fileUploadArea.classList.remove('dragover');
-    });
-
-    fileUploadArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        fileUploadArea.classList.remove('dragover');
-        
-        const files = e.dataTransfer.files;
-        if (files.length > 0) {
-            handleFileSelect(files[0]);
-        }
-    });
-
-    pictureFile.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            handleFileSelect(e.target.files[0]);
-        }
-    });
-
-    removeImage.addEventListener('click', (e) => {
-        e.stopPropagation();
-        clearFileSelection();
-    });
-
-    // URL preview handling
-    articlePictureUrl.addEventListener('input', (e) => {
-        const url = e.target.value.trim();
-        if (url && isValidImageUrl(url)) {
-            urlPreviewImage.src = url;
-            urlPreview.style.display = 'block';
-            
-            urlPreviewImage.onerror = () => {
-                urlPreview.style.display = 'none';
-            };
-        } else {
-            urlPreview.style.display = 'none';
-        }
-    });
-}
-
-function handleFileSelect(file) {
-    console.log('📁 File selected:', file.name, file.type, file.size);
-    
-    // Check file type
-    if (!file.type.startsWith('image/')) {
-        alert('Please select an image file (JPG, PNG, GIF, WebP)');
-        return;
-    }
-
-    // Check file size (5MB limit)
-    const maxSize = 5 * 1024 * 1024; // 5MB
-    if (file.size > maxSize) {
-        alert('File size must be less than 5MB');
-        return;
-    }
-
-    selectedFile = file;
-    console.log('✅ File accepted:', file.name);
-    
-    // Show preview
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        const previewImg = document.getElementById('previewImg');
-        const fileName = document.getElementById('fileName');
-        const filePreview = document.getElementById('filePreview');
-        
-        if (previewImg && fileName && filePreview) {
-            previewImg.src = e.target.result;
-            fileName.textContent = file.name;
-            filePreview.style.display = 'block';
-            console.log('✅ Preview displayed');
-        }
-    };
-    reader.onerror = (e) => {
-        console.error('❌ FileReader error:', e);
-    };
-    reader.readAsDataURL(file);
-}
-
-function clearFileSelection() {
-    console.log('🗑️ Clearing file selection');
-    selectedFile = null;
-    
-    const pictureFile = document.getElementById('pictureFile');
-    const filePreview = document.getElementById('filePreview');
-    
-    if (pictureFile) {
-        pictureFile.value = '';
-    }
-    if (filePreview) {
-        filePreview.style.display = 'none';
-    }
-}
-
-function formatFileSize(bytes) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-function isValidImageUrl(url) {
-    try {
-        new URL(url);
-        return /\.(jpg|jpeg|png|gif|webp)$/i.test(url);
-    } catch {
-        return false;
-    }
 }
 
 function selectItemType(type) {
@@ -420,91 +257,42 @@ async function handleArticleSubmit(e) {
     showLoading('Creating article...');
     
     try {
-        // Check which upload method is selected
-        const uploadMethodRadio = document.querySelector('input[name="pictureMethod"]:checked');
-        const uploadMethod = uploadMethodRadio ? uploadMethodRadio.value : 'url';
+        const articleData = {
+            item_type: selectedItemType,
+            item_id: createdItemId,
+            description: document.getElementById('articleDescription').value || '',
+            price: parseFloat(document.getElementById('articlePrice').value)
+        };
         
-        console.log('📝 Upload method:', uploadMethod);
-        console.log('📁 Selected file:', selectedFile);
+        console.log('📝 Creating article:', articleData);
         
-        if (uploadMethod === 'file' && selectedFile) {
-            console.log('📁 Using file upload method');
-            
-            // Use FormData for file upload
-            const formData = new FormData();
-            
-            // Add all the required fields
-            formData.append('item_type', selectedItemType);
-            formData.append('item_id', createdItemId.toString());
-            formData.append('description', document.getElementById('articleDescription').value || '');
-            formData.append('price', document.getElementById('articlePrice').value);
-            formData.append('picture', selectedFile);
-            
-            console.log('📝 FormData contents:');
-            for (let [key, value] of formData.entries()) {
-                console.log(`  ${key}:`, value);
-            }
-            
-            const response = await fetch('http://localhost:8000/api/articles', {
-                method: 'POST',
-                credentials: 'include',
-                body: formData
-                // Don't set Content-Type header - let browser set it for FormData
-            });
-            
-            console.log('📡 Response status:', response.status);
-            
-            if (!response.ok) {
-                const errorData = await response.json();
-                console.error('❌ Server error response:', errorData);
-                throw new Error(errorData.error || 'Failed to create article');
-            }
-            
-            const result = await response.json();
-            console.log('✅ Success response:', result);
-            showSuccess('Article created successfully with uploaded image!');
-            
-        } else {
-            console.log('📄 Using URL/JSON method');
-            
-            // Use JSON for URL method (original code)
-            const articleData = {
-                item_type: selectedItemType,
-                item_id: createdItemId,
-                description: document.getElementById('articleDescription').value || '',
-                price: parseFloat(document.getElementById('articlePrice').value)
+        const response = await fetch('http://localhost:8000/api/articles', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(articleData)
+        });
+        
+        console.log('📡 Response status:', response.status);
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            console.error('❌ Server error response:', errorData);
+            throw new Error(errorData.error || 'Failed to create article');
+        }
+        
+        const result = await response.json();
+        console.log('✅ Success response:', result);
+        showSuccess('Article created successfully!');
+        
+        // Set up the "View Article" button
+        const viewArticleBtn = document.getElementById('viewArticleBtn');
+        if (viewArticleBtn && result.article) {
+            viewArticleBtn.onclick = () => {
+                window.location.href = `article.html?id=${result.article.id}`;
             };
-            
-            // Add picture URL if provided
-            if (uploadMethod === 'url') {
-                const pictureUrl = document.getElementById('articlePictureUrl')?.value;
-                if (pictureUrl && pictureUrl.trim()) {
-                    articleData.picture_url = pictureUrl.trim();
-                }
-            }
-            
-            console.log('📝 JSON data:', articleData);
-            
-            const response = await fetch('http://localhost:8000/api/articles', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                credentials: 'include',
-                body: JSON.stringify(articleData)
-            });
-            
-            console.log('📡 Response status:', response.status);
-            
-            if (!response.ok) {
-                const errorData = await response.json();
-                console.error('❌ Server error response:', errorData);
-                throw new Error(errorData.error || 'Failed to create article');
-            }
-            
-            const result = await response.json();
-            console.log('✅ Success response:', result);
-            showSuccess('Article created successfully!');
         }
         
     } catch (error) {
@@ -548,8 +336,6 @@ function resetItemForm() {
 function resetAllForms() {
     resetItemForm();
     articleForm.reset();
-    clearFileSelection();
-    selectedFile = null;
     itemCreationSection.style.display = 'none';
     articleCreationSection.style.display = 'none';
 }

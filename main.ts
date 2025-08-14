@@ -18,12 +18,17 @@ const JWT_SECRET = "default-secret";
 const PORT = parseInt("8000");
 
 const UPLOADS_DIR = "./uploads";
-await ensureDir(UPLOADS_DIR);
 try {
   await ensureDir(UPLOADS_DIR);
-  console.log("📁 Uploads directory created/verified");
+  console.log("📁 Uploads directory ready:", UPLOADS_DIR);
+  
+  // Test write permissions
+  const testPath = `${UPLOADS_DIR}/test_write.txt`;
+  await Deno.writeTextFile(testPath, "test");
+  await Deno.remove(testPath);
+  console.log("✅ Uploads directory is writable");
 } catch (error) {
-  console.log("⚠️ Uploads directory issue:", error.message);
+  console.error("❌ Uploads directory error:", error);
 }
 
 console.log("🔧 Starting server with configuration:");
@@ -117,7 +122,6 @@ async function initializeDatabase() {
             item_id INT NOT NULL,
             description TEXT,
             price DECIMAL(10, 2) NOT NULL,
-            picture_url VARCHAR(500),
             is_sold BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -230,7 +234,6 @@ interface User {
     item_id: number;
     description?: string;
     price: number;
-    picture_url?: string;
     is_sold?: boolean;
     created_at?: Date;
     updated_at?: Date;
@@ -512,46 +515,55 @@ router.post("/api/auth/register", async (ctx) => {
 });
 
 router.get("/uploads/:filename", async (ctx) => {
+  const filename = ctx.params.filename;
+  const filePath = `./uploads/${filename}`;
+  
+  console.log(`🖼️ Image request: ${filename}`);
+  
   try {
-      const filename = ctx.params.filename;
-      const filePath = `${UPLOADS_DIR}/${filename}`;
-      
-      console.log("🖼️ Serving file:", filePath);
-      
-      try {
-          const fileContent = await Deno.readFile(filePath);
-          
-          // Set appropriate content type
-          let contentType = "image/jpeg";
-          if (filename.toLowerCase().endsWith('.png')) {
-              contentType = "image/png";
-          } else if (filename.toLowerCase().endsWith('.gif')) {
-              contentType = "image/gif";
-          } else if (filename.toLowerCase().endsWith('.webp')) {
-              contentType = "image/webp";
-          }
-          
-          // ADD CORS headers to allow cross-origin image loading
-          ctx.response.headers.set("Content-Type", contentType);
-          ctx.response.headers.set("Cache-Control", "public, max-age=86400");
-          ctx.response.headers.set("Access-Control-Allow-Origin", "*");
-          ctx.response.headers.set("Access-Control-Allow-Methods", "GET");
-          ctx.response.headers.set("Access-Control-Allow-Headers", "Content-Type");
-          
-          ctx.response.body = fileContent;
-          
-      } catch (fileError) {
-          console.log("❌ File not found:", filePath);
-          ctx.response.status = 404;
-          ctx.response.body = { error: "File not found" };
-      }
-      
+    // Read file
+    const fileContent = await Deno.readFile(filePath);
+    
+    // Get file extension for content type
+    const ext = filename.toLowerCase().split('.').pop() || 'jpg';
+    let contentType = 'image/jpeg';
+    
+    switch (ext) {
+      case 'png': contentType = 'image/png'; break;
+      case 'gif': contentType = 'image/gif'; break;
+      case 'webp': contentType = 'image/webp'; break;
+      case 'jpg':
+      case 'jpeg': 
+      default: contentType = 'image/jpeg'; break;
+    }
+    
+    // Set headers
+    ctx.response.headers.set("Content-Type", contentType);
+    ctx.response.headers.set("Content-Length", fileContent.length.toString());
+    ctx.response.headers.set("Cache-Control", "public, max-age=3600");
+    
+    // CORS headers
+    ctx.response.headers.set("Access-Control-Allow-Origin", "*");
+    ctx.response.headers.set("Access-Control-Allow-Methods", "GET");
+    
+    ctx.response.body = fileContent;
+    console.log(`✅ Served image: ${filename} (${contentType}, ${fileContent.length} bytes)`);
+    
   } catch (error) {
-      console.error("❌ File serving error:", error);
-      ctx.response.status = 500;
-      ctx.response.body = { error: "Server error" };
+    console.log(`❌ Image not found: ${filename}`);
+    ctx.response.status = 404;
+    ctx.response.body = "Image not found";
   }
 });
+
+router.options("/uploads/:filename", (ctx) => {
+  ctx.response.headers.set("Access-Control-Allow-Origin", "*");
+  ctx.response.headers.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+  ctx.response.headers.set("Access-Control-Allow-Headers", "Content-Type, Cache-Control");
+  ctx.response.status = 200;
+  ctx.response.body = "";
+});
+
 // Login endpoint
 router.post("/api/auth/login", async (ctx) => {
   try {
@@ -737,107 +749,13 @@ router.post("/api/cds", authMiddleware, async (ctx) => {
 router.post("/api/articles", authMiddleware, async (ctx) => {
   try {
       const tokenData = ctx.state.tokenData as JWTPayload;
-      const body = ctx.request.body();
+      const body = await ctx.request.body();
+      const { item_type, item_id, description, price } = await body.value;
       
-      let item_type: string = '';
-      let item_id: number = 0;
-      let description: string = '';
-      let price: number = 0;
-      let picture_url: string = '';
-
-      console.log("📝 Request body type:", body.type);
-
-      if (body.type === "form-data") {
-          console.log("📁 Processing form data with potential file upload...");
-          
-          try {
-              const formData = await body.value.read();
-              console.log("📋 Form data received");
-              
-              // Extract form fields
-              if (formData.fields) {
-                  item_type = formData.fields.item_type as string || '';
-                  item_id = parseInt(formData.fields.item_id as string || '0');
-                  description = formData.fields.description as string || '';
-                  price = parseFloat(formData.fields.price as string || '0');
-                  picture_url = formData.fields.picture_url as string || '';
-                  
-                  console.log("📋 Form fields:", { item_type, item_id, description, price });
-              }
-
-              // Handle file upload
-              if (formData.files && formData.files.length > 0) {
-                  console.log("📁 Files found:", formData.files.length);
-                  
-                  const uploadedFile = formData.files.find(f => f.name === 'picture');
-                  
-                  if (uploadedFile) {
-                      console.log("📁 Processing uploaded file:", uploadedFile.originalName);
-                      
-                      try {
-                          // Generate unique filename
-                          const originalName = uploadedFile.originalName || 'upload.jpg';
-                          const uniqueFileName = generateUniqueFileName(originalName);
-                          const targetPath = `${UPLOADS_DIR}/${uniqueFileName}`;
-                          
-                          console.log("📁 Saving file to:", targetPath);
-                          
-                          // Read the temporary file and write to our uploads directory
-                          if (uploadedFile.tempFile) {
-                              const fileContent = await Deno.readFile(uploadedFile.tempFile);
-                              await Deno.writeFile(targetPath, fileContent);
-                              
-                              // Set picture URL
-                              picture_url = `http://localhost:8000/uploads/${uniqueFileName}`;
-                              
-                              console.log("✅ File saved successfully:", picture_url);
-                          } else if (uploadedFile.content) {
-                              // Alternative: if content is directly available
-                              await Deno.writeFile(targetPath, uploadedFile.content);
-                              picture_url = `http://localhost:8000/uploads/${uniqueFileName}`;
-                              
-                              console.log("✅ File saved successfully (from content):", picture_url);
-                          } else {
-                              throw new Error("No file content available");
-                          }
-                          
-                      } catch (fileError) {
-                          console.error("❌ File save error:", fileError);
-                          ctx.response.status = 500;
-                          ctx.response.body = { error: "Failed to save uploaded file: " + fileError.message };
-                          return;
-                      }
-                  }
-              } else {
-                  console.log("📁 No files in upload");
-              }
-              
-          } catch (formError) {
-              console.error("❌ Form data processing error:", formError);
-              ctx.response.status = 400;
-              ctx.response.body = { error: "Failed to process form data: " + formError.message };
-              return;
-          }
-          
-      } else if (body.type === "json") {
-          // Handle JSON data (URL method or fallback)
-          console.log("📄 Processing JSON data...");
-          const jsonData = await body.value;
-          item_type = jsonData.item_type;
-          item_id = jsonData.item_id;
-          description = jsonData.description;
-          price = jsonData.price;
-          picture_url = jsonData.picture_url || '';
-      } else {
-          console.log("❌ Unsupported body type:", body.type);
-          ctx.response.status = 400;
-          ctx.response.body = { error: "Unsupported request format" };
-          return;
-      }
-
+      console.log('📝 Creating article:', { item_type, item_id, description, price });
+      
       // Validation
       if (!item_type || !item_id || !price) {
-          console.log("❌ Validation failed:", { item_type, item_id, price });
           ctx.response.status = 400;
           ctx.response.body = { error: "Item type, item ID, and price are required" };
           return;
@@ -846,6 +764,12 @@ router.post("/api/articles", authMiddleware, async (ctx) => {
       if (!['book', 'dvd', 'cd'].includes(item_type)) {
           ctx.response.status = 400;
           ctx.response.body = { error: "Item type must be 'book', 'dvd', or 'cd'" };
+          return;
+      }
+
+      if (price <= 0) {
+          ctx.response.status = 400;
+          ctx.response.body = { error: "Price must be greater than 0" };
           return;
       }
 
@@ -868,13 +792,13 @@ router.post("/api/articles", authMiddleware, async (ctx) => {
           return;
       }
 
-      // Create the article
+      // Create the article (removed picture_url from query)
       const result = await client.execute(
-          "INSERT INTO articles (user_id, item_type, item_id, description, price, picture_url) VALUES (?, ?, ?, ?, ?, ?)",
-          [tokenData.userId, item_type, item_id, description || null, price, picture_url || null]
+          "INSERT INTO articles (user_id, item_type, item_id, description, price) VALUES (?, ?, ?, ?, ?)",
+          [tokenData.userId, item_type, item_id, description || null, price]
       );
 
-      console.log(`✅ Article created successfully: ID ${result.lastInsertId}, Picture: ${picture_url || 'none'}`);
+      console.log(`✅ Article created successfully: ID ${result.lastInsertId}`);
 
       ctx.response.status = 201;
       ctx.response.body = {
@@ -886,7 +810,6 @@ router.post("/api/articles", authMiddleware, async (ctx) => {
               item_id,
               description,
               price,
-              picture_url,
           },
       };
       
@@ -896,6 +819,9 @@ router.post("/api/articles", authMiddleware, async (ctx) => {
       ctx.response.body = { error: "Internal server error: " + error.message };
   }
 });
+
+
+
 
 router.get("/uploads/:filename", async (ctx) => {
   try {
@@ -988,7 +914,6 @@ router.get("/api/articles/cd", async (ctx) => {
           a.item_id,
           a.description,
           a.price,
-          a.picture_url,
           a.is_sold,
           a.created_at,
           a.updated_at,
@@ -1010,7 +935,6 @@ router.get("/api/articles/cd", async (ctx) => {
         item_id: article.item_id,
         description: article.description,
         price: parseFloat(article.price),
-        picture_url: article.picture_url,
         is_sold: Boolean(article.is_sold),
         created_at: article.created_at,
         updated_at: article.updated_at,
@@ -1053,7 +977,6 @@ router.get("/api/articles/cd/:id", async (ctx) => {
         a.item_id,
         a.description,
         a.price,
-        a.picture_url,
         a.is_sold,
         a.created_at,
         a.updated_at,
@@ -1081,7 +1004,6 @@ router.get("/api/articles/cd/:id", async (ctx) => {
       item_id: article.item_id,
       description: article.description,
       price: parseFloat(article.price),
-      picture_url: article.picture_url,
       is_sold: Boolean(article.is_sold),
       created_at: article.created_at,
       updated_at: article.updated_at,
@@ -1116,7 +1038,6 @@ router.get("/api/articles", async (ctx) => {
         a.item_id,
         a.description,
         a.price,
-        a.picture_url,
         a.is_sold,
         a.created_at,
         a.updated_at,
@@ -1140,7 +1061,6 @@ router.get("/api/articles", async (ctx) => {
         a.item_id,
         a.description,
         a.price,
-        a.picture_url,
         a.is_sold,
         a.created_at,
         a.updated_at,
@@ -1164,7 +1084,6 @@ router.get("/api/articles", async (ctx) => {
         a.item_id,
         a.description,
         a.price,
-        a.picture_url,
         a.is_sold,
         a.created_at,
         a.updated_at,
@@ -1187,7 +1106,6 @@ router.get("/api/articles", async (ctx) => {
         item_id: article.item_id,
         description: article.description,
         price: parseFloat(article.price),
-        picture_url: article.picture_url,
         is_sold: Boolean(article.is_sold),
         created_at: article.created_at,
         updated_at: article.updated_at,
@@ -1206,7 +1124,6 @@ router.get("/api/articles", async (ctx) => {
         item_id: article.item_id,
         description: article.description,
         price: parseFloat(article.price),
-        picture_url: article.picture_url,
         is_sold: Boolean(article.is_sold),
         created_at: article.created_at,
         updated_at: article.updated_at,
@@ -1225,7 +1142,6 @@ router.get("/api/articles", async (ctx) => {
         item_id: article.item_id,
         description: article.description,
         price: parseFloat(article.price),
-        picture_url: article.picture_url,
         is_sold: Boolean(article.is_sold),
         created_at: article.created_at,
         updated_at: article.updated_at,
@@ -1267,7 +1183,6 @@ router.get("/api/articles/book", async (ctx) => {
           a.item_id,
           a.description,
           a.price,
-          a.picture_url,
           a.is_sold,
           a.created_at,
           a.updated_at,
@@ -1290,7 +1205,6 @@ router.get("/api/articles/book", async (ctx) => {
         item_id: article.item_id,
         description: article.description,
         price: parseFloat(article.price),
-        picture_url: article.picture_url,
         is_sold: Boolean(article.is_sold),
         created_at: article.created_at,
         updated_at: article.updated_at,
@@ -1325,7 +1239,6 @@ router.get("/api/articles/dvd", async (ctx) => {
           a.item_id,
           a.description,
           a.price,
-          a.picture_url,
           a.is_sold,
           a.created_at,
           a.updated_at,
@@ -1348,7 +1261,6 @@ router.get("/api/articles/dvd", async (ctx) => {
         item_id: article.item_id,
         description: article.description,
         price: parseFloat(article.price),
-        picture_url: article.picture_url,
         is_sold: Boolean(article.is_sold),
         created_at: article.created_at,
         updated_at: article.updated_at,
@@ -1799,7 +1711,6 @@ router.get("/api/users/:userId/conversations", authMiddleware, async (ctx) => {
                   cm.timestamp,
                   a.user_id as article_owner_id,
                   a.price as article_price,
-                  a.picture_url as article_image,
                   a.item_type,
                   a.item_id,
                   u.username as article_owner_username,
@@ -1974,7 +1885,6 @@ router.get("/api/conversations/:otherUsername/messages", authMiddleware, async (
               a.item_type,
               a.item_id,
               a.price,
-              a.picture_url
           FROM chat_messages cm
           JOIN articles a ON cm.article_id = a.id
           WHERE 
@@ -2225,7 +2135,6 @@ router.get("/api/users/me/articles", authMiddleware, async (ctx) => {
               item_genre: article.item_genre,
               description: article.description,
               price: parseFloat(article.price),
-              picture_url: article.picture_url,
               is_sold: Boolean(article.is_sold),
               message_count: article.message_count,
               created_at: article.created_at,
@@ -2332,11 +2241,13 @@ app.use(async (ctx, next) => {
 
 // CORS middleware
 app.use(oakCors({
-  origin: "http://localhost:8080", // In production, specify your frontend domain
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  origin: ["http://localhost:8080", "http://127.0.0.1:8080", "http://localhost:3000"], 
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+  allowedHeaders: ["Content-Type", "Authorization", "Cache-Control"],
   credentials: true,
+  optionsSuccessStatus: 200
 }));
+
 
 // Request logging middleware
 app.use(async (ctx, next) => {

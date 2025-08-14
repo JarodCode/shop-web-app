@@ -1,4 +1,4 @@
-// marketplace.js - Fixed version with correct API port
+// marketplace.js - Complete clean version without pictures
 
 class MarketplaceApp {
     constructor() {
@@ -9,7 +9,7 @@ class MarketplaceApp {
         this.searchTerm = '';
         this.articles = [];
         this.genres = [];
-        this.API_BASE_URL = 'http://localhost:8000'; // Fixed: Use correct API port
+        this.API_BASE_URL = 'http://localhost:8000';
         
         this.init();
     }
@@ -73,7 +73,6 @@ class MarketplaceApp {
         const addItemBtn = document.getElementById('addItemBtn');
         if (addItemBtn) {
             addItemBtn.addEventListener('click', () => {
-                // Navigate to create article page
                 window.location.href = 'create_article.html';
             });
         }
@@ -171,10 +170,8 @@ class MarketplaceApp {
         this.hideNoResults();
 
         try {
-            // Build the correct endpoint based on currentItemType
             let endpoint = '/api/articles';
             if (this.currentItemType && this.currentItemType !== 'all') {
-                // Map frontend type names to backend API endpoints
                 const typeMapping = {
                     'books': 'book',
                     'dvds': 'dvd', 
@@ -189,7 +186,7 @@ class MarketplaceApp {
             console.log('Fetching from endpoint:', `${this.API_BASE_URL}${endpoint}`);
 
             const response = await fetch(`${this.API_BASE_URL}${endpoint}`, {
-                credentials: 'include', // Include cookies for authentication
+                credentials: 'include',
                 headers: {
                     'Content-Type': 'application/json'
                 }
@@ -202,7 +199,6 @@ class MarketplaceApp {
             const data = await response.json();
             console.log('API Response:', data);
             
-            // The API returns articles in the 'articles' property
             this.articles = data.articles || [];
             console.log('Loaded articles:', this.articles);
             
@@ -221,7 +217,6 @@ class MarketplaceApp {
     extractGenres() {
         const genresSet = new Set();
         this.articles.forEach(article => {
-            // Handle different response structures from different endpoints
             let genre = null;
             
             if (article.book_info && article.book_info.genre) {
@@ -264,7 +259,6 @@ class MarketplaceApp {
             filteredArticles = filteredArticles.filter(article => {
                 const searchTermLower = this.searchTerm.toLowerCase();
                 
-                // Get item information from different possible structures
                 let title = '';
                 let author = '';
                 let director = '';
@@ -351,13 +345,12 @@ class MarketplaceApp {
     }
 
     getItemTitle(article) {
-        // Handle different response structures
         if (article.book_info && article.book_info.title) {
             return article.book_info.title;
         } else if (article.dvd_info && article.dvd_info.title) {
             return article.dvd_info.title;
         } else if (article.cd_info && article.cd_info.author) {
-            return article.cd_info.author; // CDs use author as the main identifier
+            return article.cd_info.author;
         } else if (article.item_info) {
             return article.item_info.title || article.item_info.author || 'Untitled';
         }
@@ -378,7 +371,6 @@ class MarketplaceApp {
     }
 
     createArticleElement(article) {
-        // Handle different response structures
         let title = 'Untitled';
         let subtitle = '';
         
@@ -406,9 +398,7 @@ class MarketplaceApp {
         articleDiv.className = 'article-card';
         articleDiv.innerHTML = `
             <div class="article-image">
-                <img src="${article.picture_url || this.getDefaultImage(article.item_type)}" 
-                     alt="${title}" 
-                     onerror="this.src='${this.getDefaultImage(article.item_type)}'">
+                <div class="item-type-icon">${this.getItemTypeEmoji(article.item_type)}</div>
                 ${article.is_sold ? '<div class="sold-badge">SOLD</div>' : ''}
             </div>
             <div class="article-content">
@@ -452,20 +442,15 @@ class MarketplaceApp {
     }
 
     navigateToArticle(articleId) {
-        // Navigate to individual article page
         window.location.href = `article.html?id=${articleId}`;
     }
 
-    getDefaultImage(itemType) {
+    getItemTypeEmoji(itemType) {
         switch (itemType) {
-            case 'book':
-                return 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"><rect width="200" height="300" fill="%23f0f0f0"/><text x="100" y="150" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="%23666">📚</text></svg>';
-            case 'dvd':
-                return 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"><rect width="200" height="300" fill="%23f0f0f0"/><text x="100" y="150" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="%23666">🎬</text></svg>';
-            case 'cd':
-                return 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"><rect width="200" height="300" fill="%23f0f0f0"/><text x="100" y="150" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="%23666">💿</text></svg>';
-            default:
-                return 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"><rect width="200" height="300" fill="%23f0f0f0"/><text x="100" y="150" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="%23666">No Image</text></svg>';
+            case 'book': return '📚';
+            case 'dvd': return '🎬';
+            case 'cd': return '💿';
+            default: return '📦';
         }
     }
 
@@ -479,7 +464,6 @@ class MarketplaceApp {
     }
 
     contactSeller(sellerUsername, articleId) {
-        // Navigate to chat page with seller information and article ID
         if (sellerUsername && articleId) {
             window.location.href = `chat.html?user=${encodeURIComponent(sellerUsername)}&articleId=${articleId}`;
         } else {
@@ -582,6 +566,38 @@ class MarketplaceApp {
         }
     }
 }
+
+// Add CSS for the new item type icon display
+const style = document.createElement('style');
+style.textContent = `
+    .article-image {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 200px;
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        border-radius: 8px 8px 0 0;
+    }
+    
+    .item-type-icon {
+        font-size: 64px;
+        opacity: 0.8;
+    }
+    
+    .sold-badge {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: #ef4444;
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-weight: bold;
+        font-size: 12px;
+    }
+`;
+document.head.appendChild(style);
 
 // Initialize the application when the DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
