@@ -1,4 +1,7 @@
-// profile.js - Profile page functionality
+// profile.js - Fixed version with correct URLs and error handling
+
+// Configuration
+const API_BASE_URL = 'http://localhost:8000';
 
 // DOM elements
 const loadingOverlay = document.getElementById('loadingOverlay');
@@ -27,6 +30,7 @@ const logoutBtn = document.getElementById('logoutBtn');
 
 // Load profile data when page loads
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('🔄 Profile page loaded, attempting to load profile...');
     loadProfile();
 });
 
@@ -34,8 +38,9 @@ document.addEventListener('DOMContentLoaded', function() {
 async function loadProfile() {
     try {
         showLoading();
+        console.log(`🔄 Making request to ${API_BASE_URL}/test_cookie`);
         
-        const response = await fetch('http://localhost:8000/test_cookie', {
+        const response = await fetch(`${API_BASE_URL}/test_cookie`, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json'
@@ -43,50 +48,94 @@ async function loadProfile() {
             credentials: 'include',
         });
 
+        console.log(`📡 Response status: ${response.status}`);
+        console.log(`📡 Response headers:`, Object.fromEntries(response.headers.entries()));
+
         if (response.ok) {
             const data = await response.json();
+            console.log('✅ Profile data received:', data);
             displayProfile(data.token_data);
             setupEventListeners();
             hideLoading();
         } else if (response.status === 401) {
-            // Token expired or invalid, redirect to login
+            console.log('❌ Unauthorized - redirecting to login');
             alert('Session expired. Please login again.');
             window.location.href = 'login.html';
+        } else if (response.status === 404) {
+            console.log('❌ Endpoint not found - check server setup');
+            showError('Server endpoint not found. Please check if the authentication server is running correctly.');
         } else {
-            throw new Error('Failed to load profile');
+            console.log(`❌ Unexpected response: ${response.status}`);
+            const errorData = await response.text().catch(() => 'Unknown error');
+            console.log('Error response:', errorData);
+            throw new Error(`Server responded with status ${response.status}: ${errorData}`);
         }
     } catch (error) {
-        console.error('Profile loading error:', error);
-        showError('Failed to load profile. Please check your connection and try again.');
+        console.error('❌ Profile loading error:', error);
+        
+        if (error.name === 'TypeError' && error.message.includes('fetch')) {
+            showError('Cannot connect to server. Please check:\n1. Server is running on port 8000\n2. CORS is properly configured\n3. Network connection is working');
+        } else {
+            showError(`Failed to load profile: ${error.message}`);
+        }
     }
 }
 
 // Display profile information
 function displayProfile(tokenData) {
-    usernameDisplay.textContent = tokenData.username;
-    useridDisplay.textContent = tokenData.userId;
+    console.log('📋 Displaying profile for user:', tokenData);
     
-    // Convert timestamp to readable date
-    const memberSince = new Date(tokenData.exp * 1000 - (24 * 60 * 60 * 1000)); // Approximate registration date
-    memberSinceDisplay.textContent = memberSince.toLocaleDateString();
+    if (usernameDisplay) usernameDisplay.textContent = tokenData.username || 'Unknown';
+    if (useridDisplay) useridDisplay.textContent = tokenData.userId || 'Unknown';
     
-    // Display account type
+    // Format member since date
+    if (memberSinceDisplay) {
+        if (tokenData.loginTime) {
+            const memberSince = new Date(tokenData.loginTime);
+            memberSinceDisplay.textContent = memberSince.toLocaleDateString();
+        } else {
+            // Fallback calculation from token expiration
+            const tokenExp = new Date(tokenData.exp * 1000);
+            const estimatedJoinDate = new Date(tokenExp.getTime() - (7 * 24 * 60 * 60 * 1000)); // Estimate 7 days ago
+            memberSinceDisplay.textContent = estimatedJoinDate.toLocaleDateString();
+        }
+    }
+    
+    // Display account type with styling
     const isAdmin = tokenData.isAdmin || false;
-    accountTypeDisplay.textContent = isAdmin ? 'Administrator' : 'Regular User';
+    if (accountTypeDisplay) {
+        accountTypeDisplay.textContent = isAdmin ? 'Administrator' : 'Regular User';
+        accountTypeDisplay.setAttribute('data-admin', isAdmin.toString());
+        
+        // Add admin styling
+        if (isAdmin) {
+            accountTypeDisplay.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+            accountTypeDisplay.style.color = 'white';
+            accountTypeDisplay.style.padding = '0.25rem 0.75rem';
+            accountTypeDisplay.style.borderRadius = '1rem';
+            accountTypeDisplay.style.fontSize = '0.75rem';
+            accountTypeDisplay.style.fontWeight = '600';
+            accountTypeDisplay.style.textTransform = 'uppercase';
+        }
+    }
     
-    // If user is admin, modify the settings button to open admin panel
+    // Update settings button for admin users
     if (isAdmin && settingsBtn) {
         settingsBtn.innerHTML = '<span class="btn-icon">👑</span><span>Admin Panel</span>';
-        settingsBtn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
-        settingsBtn.style.color = 'white';
+        settingsBtn.classList.add('admin');
     }
+    
+    console.log('✅ Profile display complete');
 }
 
 // Setup event listeners
 function setupEventListeners() {
+    console.log('🔧 Setting up event listeners...');
+    
     // My Articles button - Navigate to my-articles.html
     if (myArticlesBtn) {
         myArticlesBtn.addEventListener('click', function() {
+            console.log('📋 Navigating to my articles');
             window.location.href = 'my_articles.html';
         });
     }
@@ -94,12 +143,14 @@ function setupEventListeners() {
     // Settings button - Show admin panel for admins, coming soon for regular users
     if (settingsBtn) {
         settingsBtn.addEventListener('click', function() {
-            // Check if user is admin from the account type display
-            const isAdmin = accountTypeDisplay.textContent === 'Administrator';
+            const isAdmin = accountTypeDisplay && accountTypeDisplay.textContent === 'Administrator';
+            console.log('⚙️ Settings clicked, admin status:', isAdmin);
+            
             if (isAdmin) {
+                // Check if admin.html exists, otherwise show placeholder
                 window.location.href = 'admin.html';
             } else {
-                alert('Settings page coming soon!\nHere you will be able to:\n- Change your password\n- Update your profile\n- Manage notifications\n- Delete your account');
+                alert('Settings page coming soon!\n\nHere you will be able to:\n- Change your password\n- Update your profile\n- Manage notifications\n- Delete your account');
             }
         });
     }
@@ -107,6 +158,7 @@ function setupEventListeners() {
     // Logout button
     if (logoutBtn) {
         logoutBtn.addEventListener('click', async function() {
+            console.log('👋 Logout clicked');
             if (confirm('Are you sure you want to logout?')) {
                 await logout();
             }
@@ -116,21 +168,27 @@ function setupEventListeners() {
     // Error handling buttons
     if (retryBtn) {
         retryBtn.addEventListener('click', function() {
+            console.log('🔄 Retry clicked');
             loadProfile();
         });
     }
 
     if (backToLoginBtn) {
         backToLoginBtn.addEventListener('click', function() {
+            console.log('🔙 Back to login clicked');
             window.location.href = 'login.html';
         });
     }
+    
+    console.log('✅ Event listeners setup complete');
 }
 
 // Logout function
 async function logout() {
     try {
-        const response = await fetch('http://localhost:8000/api/auth/logout', {
+        console.log('👋 Attempting logout...');
+        
+        const response = await fetch(`${API_BASE_URL}/api/auth/logout`, {
             method: 'POST',
             credentials: 'include',
             headers: {
@@ -138,23 +196,28 @@ async function logout() {
             }
         });
 
+        console.log(`📡 Logout response status: ${response.status}`);
+
         if (response.ok) {
-            // Clear any client-side storage if needed
+            const data = await response.json();
+            console.log('✅ Logout successful:', data);
             alert('Logged out successfully');
-            window.location.href = 'login.html';
         } else {
-            throw new Error('Logout failed');
+            console.log('⚠️ Logout request failed, but proceeding anyway');
         }
     } catch (error) {
-        console.error('Logout error:', error);
-        // Even if logout fails on server, redirect to login
-        alert('Logout completed');
-        window.location.href = 'login.html';
+        console.error('❌ Logout error:', error);
+        console.log('⚠️ Logout error occurred, but proceeding with client-side logout');
     }
+    
+    // Always redirect to login regardless of server response
+    console.log('🔙 Redirecting to login page');
+    window.location.href = 'login.html';
 }
 
 // Show loading overlay
 function showLoading() {
+    console.log('⏳ Showing loading overlay');
     if (loadingOverlay) {
         loadingOverlay.style.display = 'flex';
     }
@@ -165,6 +228,7 @@ function showLoading() {
 
 // Hide loading overlay
 function hideLoading() {
+    console.log('✅ Hiding loading overlay');
     if (loadingOverlay) {
         loadingOverlay.style.display = 'none';
     }
@@ -172,6 +236,7 @@ function hideLoading() {
 
 // Show error message
 function showError(message) {
+    console.log('❌ Showing error:', message);
     hideLoading();
     if (errorText) {
         errorText.textContent = message;
@@ -180,3 +245,28 @@ function showError(message) {
         errorMessage.style.display = 'block';
     }
 }
+
+// Debug function to check server connectivity
+async function checkServerConnection() {
+    try {
+        console.log('🔍 Checking server connection...');
+        const response = await fetch(`${API_BASE_URL}/api/health`, {
+            method: 'GET',
+            credentials: 'include'
+        });
+        
+        console.log(`🏥 Health check response: ${response.status}`);
+        return response.ok;
+    } catch (error) {
+        console.error('🚨 Server connection check failed:', error);
+        return false;
+    }
+}
+
+// Add a simple health check endpoint test
+window.addEventListener('load', async () => {
+    const serverOnline = await checkServerConnection();
+    if (!serverOnline) {
+        console.warn('⚠️ Server appears to be offline or unreachable');
+    }
+});

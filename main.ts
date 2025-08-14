@@ -1,11 +1,8 @@
-// main.ts - Your Deno Authentication Server
 import { Application, Router } from "https://deno.land/x/oak@v12.6.1/mod.ts";
 import { oakCors } from "https://deno.land/x/cors@v1.2.2/mod.ts";
 import { Client } from "https://deno.land/x/mysql@v2.12.1/mod.ts";
 import * as bcrypt from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
 import { create, verify } from "https://deno.land/x/djwt@v3.0.1/mod.ts";
-import { WebSocketServer } from "https://deno.land/x/websocket@v0.1.4/mod.ts";
-import { ensureDir } from "https://deno.land/std@0.208.0/fs/mod.ts";
 import { extname } from "https://deno.land/std@0.208.0/path/mod.ts";
 
 // Load environment variables
@@ -17,24 +14,45 @@ const DB_PORT = parseInt("3306");
 const JWT_SECRET = "default-secret";
 const PORT = parseInt("8000");
 
-const UPLOADS_DIR = "./uploads";
-try {
-  await ensureDir(UPLOADS_DIR);
-  console.log("📁 Uploads directory ready:", UPLOADS_DIR);
-  
-  // Test write permissions
-  const testPath = `${UPLOADS_DIR}/test_write.txt`;
-  await Deno.writeTextFile(testPath, "test");
-  await Deno.remove(testPath);
-  console.log("✅ Uploads directory is writable");
-} catch (error) {
-  console.error("❌ Uploads directory error:", error);
-}
+const simpleAuthMiddleware = async (ctx: any, next: () => Promise<unknown>) => {
+  try {
+    // For API endpoints, expect token in request body
+    let auth_token = null;
+    
+    if (ctx.request.method === 'POST') {
+      const body = await ctx.request.body();
+      const bodyValue = await body.value;
+      auth_token = bodyValue.auth_token;
+    } else {
+      // For GET requests, check query params
+      auth_token = ctx.request.url.searchParams.get('auth_token');
+    }
 
-console.log("🔧 Starting server with configuration:");
-console.log(`   Database: ${DB_HOST}:${DB_PORT}/${DB_NAME}`);
-console.log(`   User: ${DB_USER}`);
-console.log(`   Server Port: ${PORT}`);
+    if (!auth_token || !(await isAuthorized(auth_token))) {
+      ctx.response.status = 401;
+      ctx.response.body = { error: "Unauthorized" };
+      return;
+    }
+
+    // Get username from token and user data
+    const username = tokens[auth_token];
+    const users = await client.query(
+      "SELECT id, username, is_admin FROM users WHERE username = ?",
+      [username]
+    );
+
+    if (users.length > 0) {
+      ctx.state.user = users[0];
+      ctx.state.username = username;
+    }
+
+    await next();
+  } catch (error) {
+    console.error("❌ Auth middleware error:", error);
+    ctx.response.status = 401;
+    ctx.response.body = { error: "Unauthorized" };
+  }
+};
 
 // Database connection
 let client: Client;
@@ -186,13 +204,13 @@ const tokens: { [key: string]: string } = {};
 
 // Function to remove a token based on the user
 function removeTokenByUser(user: string) {
-    for (const token in tokens) {
-      if (tokens[token] === user) {
-        delete tokens[token];
-        break;
-      }
+  for (const token in tokens) {
+    if (tokens[token] === user) {
+      delete tokens[token];
+      break;
     }
   }
+}
 
 // Types
 interface User {
@@ -242,6 +260,9 @@ interface User {
   interface JWTPayload {
     userId: number;
     username: string;
+    isAdmin: boolean;
+    tokenId: string;
+    iat: number;
     exp: number;
   }
 
@@ -262,6 +283,7 @@ interface WebSocketClient {
   articleId: number;
   chatRoomId?: string; // Add this optional property
 }
+
 
 class ChatManager {
   private clients: Map<string, WebSocketClient> = new Map();
@@ -402,45 +424,38 @@ const secretKey = await crypto.subtle.generateKey(
     { name: "HMAC", hash: "SHA-512" },
     true,
     ["sign", "verify"]
-  );
+);
+
+// Function to check the tokens received by websocket messages
+const isAuthorized = async (auth_token: string) => {
+  if (!auth_token) {
+    return false;
+  }
+  if (auth_token in tokens) {
+    try {
+      const payload = await verify(auth_token, secretKey);
+      if (payload.userName === tokens[auth_token]) {
+        return true;
+      }
+    } catch {
+      console.log("verify token failed");
+      return false;
+    }
+  }
+  console.log("Unknown token");
+  return false;
+};
 
 // Helper functions
-function generateJWT(payload: JWTPayload): Promise<string> {
-  return create({ alg: "HS512", typ: "JWT" }, payload, secretKey);
+function generateJWT(payload: Omit<JWTPayload, 'iat' | 'exp'>): Promise<string> {
+  const fullPayload: JWTPayload = {
+    ...payload,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + (2 * 60 * 60), // 2 hours
+  };
+  return create({ alg: "HS512", typ: "JWT" }, fullPayload, secretKey);
 }
 
-// Middleware for JWT authentication
-async function authMiddleware(ctx: any, next: () => Promise<unknown>) {
-  const cookie = ctx.request.headers.get("cookie");
-  const authToken = cookie?.split("; ").find(row => row.startsWith("auth_token="))?.split('=')[1];
-
-  if (!authToken) {
-      ctx.response.status = 401;
-      ctx.response.body = { error: "Unauthorized: Missing token" };
-      return;
-  }
-
-  try {
-    // Verify the token
-    const tokenData = await verify(authToken, secretKey);
-    
-    // Get user's admin status from database
-    const users = await client.query(
-      "SELECT is_admin FROM users WHERE id = ?",
-      [tokenData.userId]
-    );
-    
-    if (users.length > 0) {
-      tokenData.isAdmin = Boolean(users[0].is_admin);
-    }
-    
-    ctx.state.tokenData = tokenData; // Store data in ctx.state for use in other middlewares/routes
-    await next();
-  } catch {
-    ctx.response.status = 401;
-    ctx.response.body = { error: "Unauthorized: Invalid token" };
-  }
-}
 
 // Router setup
 const router = new Router();
@@ -451,12 +466,18 @@ router.post("/api/auth/register", async (ctx) => {
     const body = await ctx.request.body();
     const { username, password } = await body.value;
 
-    console.log(`Registration attempt for: ${username}`);
+    console.log(`📝 Registration attempt for: ${username}`);
 
     // Validation
     if (!username || !password) {
       ctx.response.status = 400;
       ctx.response.body = { error: "Username and password are required" };
+      return;
+    }
+
+    if (username.length < 3) {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "Username must be at least 3 characters long" };
       return;
     }
 
@@ -473,6 +494,7 @@ router.post("/api/auth/register", async (ctx) => {
     );
 
     if (existingUser.length > 0) {
+      console.log(`❌ Registration failed: Username already exists - ${username}`);
       ctx.response.status = 409;
       ctx.response.body = { error: "Username already exists" };
       return;
@@ -481,36 +503,51 @@ router.post("/api/auth/register", async (ctx) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password);
 
-    // Insert user - Fixed SQL query (removed extra parameter)
+    // Insert user
     const result = await client.execute(
-      "INSERT INTO users (username, password) VALUES (?, ?)",
-      [username, hashedPassword]
+      "INSERT INTO users (username, password, is_admin) VALUES (?, ?, ?)",
+      [username, hashedPassword, false]
     );
 
+    const userId = result.lastInsertId as number;
+    const sessionId = generateSessionId();
+
     // Generate JWT
-    const payload: JWTPayload = {
-        userId: result.lastInsertId as number,
-        username,
-        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24),
-    };
+    const token = await generateJWT({
+      userId,
+      username,
+      sessionId,
+      isAdmin: false
+    });
 
-    const token = await generateJWT(payload);
+    // Set secure cookie
+    const isProduction = Deno.env.get('NODE_ENV') === 'production';
+    const cookieOptions = [
+      `auth_token=${token}`,
+      'HttpOnly',
+      'SameSite=Strict',
+      'Max-Age=7200', // 2 hours
+      'Path=/',
+      ...(isProduction ? ['Secure'] : [])
+    ].join('; ');
 
-    console.log(`✅ User registered successfully: ${username} (ID: ${result.lastInsertId})`);
+    ctx.response.headers.set("Set-Cookie", cookieOptions);
+
+    console.log(`✅ User registered successfully: ${username} (ID: ${userId})`);
 
     ctx.response.status = 201;
     ctx.response.body = {
       message: "User registered successfully",
-      token,
       user: {
-        id: result.lastInsertId,
+        id: userId,
         username,
+        isAdmin: false
       },
     };
   } catch (error) {
     console.error("❌ Registration error:", error);
     ctx.response.status = 500;
-    ctx.response.body = { error: "Internal server error" };
+    ctx.response.body = { error: "Internal server error: " + error.message };
   }
 });
 
@@ -569,62 +606,53 @@ router.post("/api/auth/login", async (ctx) => {
   try {
     const body = await ctx.request.body();
     const { username, password } = await body.value;
-
+    
     console.log(`🔐 Login attempt for: ${username}`);
 
-    if (!username || !password) {
-      ctx.response.status = 400;
-      ctx.response.body = { error: "Username and password are required" };
-      return;
-    }
-
-    // Find user by username - Fixed SQL query (removed duplicate parameter)
+    // Find user in database
     const users = await client.query(
-      "SELECT * FROM users WHERE username = ?",
+      "SELECT id, username, password, is_admin FROM users WHERE username = ?",
       [username]
     );
 
     if (users.length === 0) {
-      console.log(`❌ Login failed: User not found - ${username}`);
       ctx.response.status = 401;
-      ctx.response.body = { error: "Invalid credentials" };
+      ctx.response.body = { error: "Invalid username or password" };
       return;
     }
 
     const user = users[0] as any;
 
     // Verify password
-    const isValidPassword = await bcrypt.compare(password, user.password);
-    if (!isValidPassword) {
-      console.log(`❌ Login failed: Invalid password - ${username}`);
+    const result = await bcrypt.compare(password, user.password);
+    if (!result) {
       ctx.response.status = 401;
-      ctx.response.body = { error: "Invalid credentials" };
+      ctx.response.body = { error: "Invalid username or password" };
       return;
     }
 
-    // Generate JWT
-    const payload: JWTPayload = {
-        userId: user.id,
-        username: user.username,
-        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24),
-    };
-
-    const token = await generateJWT(payload);
-
-    // Set the cookie (HttpOnly for security)
-    ctx.response.headers.set(
-        "Set-Cookie", 
-        `auth_token=${token}; HttpOnly; SameSite=Strict; Max-Age=${60 * 60 * 24}; Path=/; ${Deno.env.get('NODE_ENV') === 'production' ? 'Secure;' : ''}`
+    // Create token - exactly like your example
+    const token = await create(
+      { alg: "HS512", typ: "JWT" }, 
+      { userName: user.username }, 
+      secretKey
     );
 
-    console.log(`✅ User logged in successfully: ${user.username} (ID: ${user.id})`);
+    // Remove existing token and store new one - exactly like your example
+    removeTokenByUser(username);
+    tokens[token] = username;
 
-    ctx.response.body = {
-      message: "Login successful",
+    console.log(`✅ User logged in: ${username}`);
+    console.log(`📊 Active tokens: ${Object.keys(tokens).length}`);
+
+    ctx.response.status = 200;
+    ctx.response.body = { 
+      auth_token: token,
       user: {
         id: user.id,
         username: user.username,
-      },
+        isAdmin: Boolean(user.is_admin)
+      }
     };
   } catch (error) {
     console.error("❌ Login error:", error);
@@ -634,18 +662,164 @@ router.post("/api/auth/login", async (ctx) => {
 });
 
 // Logout endpoint
-router.post("/api/auth/logout", (ctx) => {
-  console.log(`👋 User logged out: ${ctx.state.user.username}`);
+router.post("/api/auth/logout", async (ctx) => {
+  try {
+    const body = await ctx.request.body();
+    const { auth_token } = await body.value;
+
+    if (auth_token && auth_token in tokens) {
+      const username = tokens[auth_token];
+      delete tokens[auth_token];
+      console.log(`👋 User logged out: ${username}`);
+    }
+
+    ctx.response.body = { message: "Logout successful" };
+  } catch (error) {
+    console.error("❌ Logout error:", error);
+    ctx.response.status = 500;
+    ctx.response.body = { error: "Internal server error" };
+  }
+});
+
+router.post("/api/auth/profile", async (ctx) => {
+  try {
+    const body = await ctx.request.body();
+    const { auth_token } = await body.value;
+
+    if (!auth_token || !(await isAuthorized(auth_token))) {
+      ctx.response.status = 401;
+      ctx.response.body = { error: "Unauthorized" };
+      return;
+    }
+
+    const username = tokens[auth_token];
+    const users = await client.query(
+      "SELECT id, username, is_admin FROM users WHERE username = ?",
+      [username]
+    );
+
+    if (users.length === 0) {
+      ctx.response.status = 401;
+      ctx.response.body = { error: "User not found" };
+      return;
+    }
+
+    const user = users[0];
+    ctx.response.body = {
+      message: "Profile retrieved successfully",
+      user: {
+        id: user.id,
+        username: user.username,
+        isAdmin: Boolean(user.is_admin)
+      }
+    };
+  } catch (error) {
+    console.error("❌ Profile error:", error);
+    ctx.response.status = 500;
+    ctx.response.body = { error: "Internal server error" };
+  }
+});
+
+router.get("/api/auth/sessions", tokenAuthMiddleware, (ctx) => {
+  try {
+    const tokenData = ctx.state.tokenData;
+    
+    if (!tokenData.isAdmin) {
+      ctx.response.status = 403;
+      ctx.response.body = { error: "Forbidden: Admin access required" };
+      return;
+    }
+    
+    const sessions = Object.entries(tokens).map(([token, info]) => ({
+      tokenId: token.substring(0, 20) + "...", // Don't expose full token
+      userId: info.userId,
+      username: info.username,
+      isAdmin: info.isAdmin,
+      loginTime: info.loginTime,
+      lastActivity: info.lastActivity,
+      isCurrentUser: info.username === tokenData.username
+    }));
+    
+    ctx.response.body = {
+      message: "Active sessions retrieved",
+      sessions,
+      totalSessions: sessions.length
+    };
+  } catch (error) {
+    console.error("❌ Sessions retrieval error:", error);
+    ctx.response.status = 500;
+    ctx.response.body = { error: "Internal server error" };
+  }
+});
+
+router.post("/api/auth/validate", async (ctx) => {
+  try {
+    const body = await ctx.request.body();
+    const { auth_token } = await body.value;
+    
+    if (!auth_token) {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "Token is required" };
+      return;
+    }
+    
+    const isValid = await isAuthorized(auth_token);
+    
+    if (isValid) {
+      const tokenInfo = tokens[auth_token];
+      ctx.response.body = {
+        valid: true,
+        user: {
+          userId: tokenInfo.userId,
+          username: tokenInfo.username,
+          isAdmin: tokenInfo.isAdmin
+        }
+      };
+    } else {
+      ctx.response.body = { valid: false };
+    }
+  } catch (error) {
+    console.error("❌ Token validation error:", error);
+    ctx.response.status = 500;
+    ctx.response.body = { error: "Internal server error" };
+  }
+});
+
+router.get("/api/health", (ctx) => {
   ctx.response.body = {
-    message: "Logout successful. Please remove the token from client storage.",
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    database: client ? "connected" : "disconnected",
+    activeTokens: Object.keys(tokens).length
+  };
+});
+
+router.get("/api/debug/tokens", (ctx) => {
+  ctx.response.body = {
+    tokenCount: Object.keys(tokens).length,
+    tokenUsers: Object.values(tokens) // Just show usernames, not actual tokens
+  };
+});
+
+router.get("/api/test-cookie", tokenAuthMiddleware, (ctx) => {
+  const tokenData = ctx.state.tokenData as JWTPayload;
+  ctx.response.body = { 
+    message: 'Token verified successfully', 
+    tokenData: {
+      userId: tokenData.userId,
+      username: tokenData.username,
+      isAdmin: tokenData.isAdmin,
+      sessionId: tokenData.sessionId,
+      exp: tokenData.exp
+    }
   };
 });
 
 // Create a book
-router.post("/api/books", authMiddleware, async (ctx) => {
+router.post("/api/books", simpleAuthMiddleware, async (ctx) => {
   try {
     const body = await ctx.request.body();
-    const { title, author, publication_date, genre } = await body.value;
+    const { title, author, publication_date, genre, auth_token } = await body.value;
 
     if (!title || !author) {
       ctx.response.status = 400;
@@ -675,12 +849,11 @@ router.post("/api/books", authMiddleware, async (ctx) => {
     ctx.response.body = { error: "Internal server error" };
   }
 });
-
 // Create a DVD
-router.post("/api/dvds", authMiddleware, async (ctx) => {
+router.post("/api/dvds", simpleAuthMiddleware, async (ctx) => {
   try {
     const body = await ctx.request.body();
-    const { title, publication_date, director, genre } = await body.value;
+    const { title, publication_date, director, genre, auth_token } = await body.value;
 
     if (!title || !director) {
       ctx.response.status = 400;
@@ -712,10 +885,10 @@ router.post("/api/dvds", authMiddleware, async (ctx) => {
 });
 
 // Create a CD
-router.post("/api/cds", authMiddleware, async (ctx) => {
+router.post("/api/cds", simpleAuthMiddleware, async (ctx) => {
   try {
     const body = await ctx.request.body();
-    const { author, publication_date, genre } = await body.value;
+    const { author, publication_date, genre, auth_token } = await body.value;
 
     if (!author) {
       ctx.response.status = 400;
@@ -746,122 +919,98 @@ router.post("/api/cds", authMiddleware, async (ctx) => {
 });
 
 // Create an article
-router.post("/api/articles", authMiddleware, async (ctx) => {
+router.post("/api/articles", simpleAuthMiddleware, async (ctx) => {
   try {
-      const tokenData = ctx.state.tokenData as JWTPayload;
-      
-      console.log('📝 Article creation request received');
-      console.log('📝 Content-Type:', ctx.request.headers.get("content-type"));
-      
-      // Handle JSON requests (which is what your frontend sends)
-      const body = await ctx.request.body();
-      const bodyValue = await body.value;
-      
-      console.log('📝 Request body type:', body.type);
-      console.log('📝 Request body value:', bodyValue);
-      
-      let articleData;
-      
-      if (body.type === "json") {
-          articleData = bodyValue;
-      } else {
-          // For backwards compatibility, try to parse as JSON
-          try {
-              articleData = JSON.parse(bodyValue);
-          } catch {
-              ctx.response.status = 400;
-              ctx.response.body = { error: "Invalid JSON in request body" };
-              return;
-          }
-      }
-      
-      const { item_type, item_id, description, price } = articleData;
-      
-      console.log('📝 Creating article:', { item_type, item_id, description, price });
-      
-      // Validation
-      if (!item_type || !item_id || price === undefined || price === null) {
-          ctx.response.status = 400;
-          ctx.response.body = { error: "Item type, item ID, and price are required" };
-          return;
-      }
+    const user = ctx.state.user;
+    
+    const body = await ctx.request.body();
+    const bodyValue = await body.value;
+    const { item_type, item_id, description, price, auth_token } = bodyValue;
+    
+    console.log('📝 Creating article:', { item_type, item_id, description, price });
+    
+    // Validation
+    if (!item_type || !item_id || price === undefined || price === null) {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "Item type, item ID, and price are required" };
+      return;
+    }
 
-      if (!['book', 'dvd', 'cd'].includes(item_type)) {
-          ctx.response.status = 400;
-          ctx.response.body = { error: "Item type must be 'book', 'dvd', or 'cd'" };
-          return;
+    if (!['book', 'dvd', 'cd'].includes(item_type)) {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "Item type must be 'book', 'dvd', or 'cd'" };
+      return;
+    }
+
+    const priceNum = parseFloat(price);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "Price must be a valid number greater than 0" };
+      return;
+    }
+
+    // Verify that the item exists
+    let itemExists = false;
+    try {
+      if (item_type === 'book') {
+        const books = await client.query("SELECT id FROM books WHERE id = ?", [item_id]);
+        itemExists = books.length > 0;
+      } else if (item_type === 'dvd') {
+        const dvds = await client.query("SELECT id FROM dvds WHERE id = ?", [item_id]);
+        itemExists = dvds.length > 0;
+      } else if (item_type === 'cd') {
+        const cds = await client.query("SELECT id FROM cds WHERE id = ?", [item_id]);
+        itemExists = cds.length > 0;
       }
-
-      const priceNum = parseFloat(price);
-      if (isNaN(priceNum) || priceNum <= 0) {
-          ctx.response.status = 400;
-          ctx.response.body = { error: "Price must be a valid number greater than 0" };
-          return;
-      }
-
-      // Verify that the item exists
-      let itemExists = false;
-      try {
-          if (item_type === 'book') {
-              const books = await client.query("SELECT id FROM books WHERE id = ?", [item_id]);
-              itemExists = books.length > 0;
-          } else if (item_type === 'dvd') {
-              const dvds = await client.query("SELECT id FROM dvds WHERE id = ?", [item_id]);
-              itemExists = dvds.length > 0;
-          } else if (item_type === 'cd') {
-              const cds = await client.query("SELECT id FROM cds WHERE id = ?", [item_id]);
-              itemExists = cds.length > 0;
-          }
-      } catch (dbError) {
-          console.error("❌ Database error checking item:", dbError);
-          ctx.response.status = 500;
-          ctx.response.body = { error: "Database error while verifying item" };
-          return;
-      }
-
-      if (!itemExists) {
-          ctx.response.status = 404;
-          ctx.response.body = { error: `${item_type} with ID ${item_id} not found` };
-          return;
-      }
-
-      // Create the article
-      try {
-          const result = await client.execute(
-              "INSERT INTO articles (user_id, item_type, item_id, description, price) VALUES (?, ?, ?, ?, ?)",
-              [tokenData.userId, item_type, item_id, description || null, priceNum]
-          );
-
-          console.log(`✅ Article created successfully: ID ${result.lastInsertId}`);
-
-          ctx.response.status = 201;
-          ctx.response.body = {
-              message: "Article created successfully",
-              article: {
-                  id: result.lastInsertId,
-                  user_id: tokenData.userId,
-                  item_type,
-                  item_id,
-                  description: description || null,
-                  price: priceNum,
-                  is_sold: false,
-                  created_at: new Date().toISOString()
-              },
-          };
-      } catch (dbError) {
-          console.error("❌ Database error creating article:", dbError);
-          ctx.response.status = 500;
-          ctx.response.body = { error: "Database error while creating article" };
-          return;
-      }
-      
-  } catch (error) {
-      console.error("❌ Article creation error:", error);
+    } catch (dbError) {
+      console.error("❌ Database error checking item:", dbError);
       ctx.response.status = 500;
-      ctx.response.body = { error: "Internal server error: " + error.message };
+      ctx.response.body = { error: "Database error while verifying item" };
+      return;
+    }
+
+    if (!itemExists) {
+      ctx.response.status = 404;
+      ctx.response.body = { error: `${item_type} with ID ${item_id} not found` };
+      return;
+    }
+
+    // Create the article
+    try {
+      const result = await client.execute(
+        "INSERT INTO articles (user_id, item_type, item_id, description, price) VALUES (?, ?, ?, ?, ?)",
+        [user.id, item_type, item_id, description || null, priceNum]
+      );
+
+      console.log(`✅ Article created successfully: ID ${result.lastInsertId}`);
+
+      ctx.response.status = 201;
+      ctx.response.body = {
+        message: "Article created successfully",
+        article: {
+          id: result.lastInsertId,
+          user_id: user.id,
+          item_type,
+          item_id,
+          description: description || null,
+          price: priceNum,
+          is_sold: false,
+          created_at: new Date().toISOString()
+        },
+      };
+    } catch (dbError) {
+      console.error("❌ Database error creating article:", dbError);
+      ctx.response.status = 500;
+      ctx.response.body = { error: "Database error while creating article" };
+      return;
+    }
+    
+  } catch (error) {
+    console.error("❌ Article creation error:", error);
+    ctx.response.status = 500;
+    ctx.response.body = { error: "Internal server error: " + error.message };
   }
 });
-
 
 
 
@@ -930,17 +1079,43 @@ export async function cleanupOldFiles(daysOld: number = 30) {
   }
 }
 
-router.get('/test_cookie', authMiddleware, (ctx) => {
-  const tokenData = ctx.state.tokenData;
-  ctx.response.body = { 
+router.get("/test_cookie", async (ctx) => {
+  try {
+    // Get token from query params for GET request
+    const auth_token = ctx.request.url.searchParams.get('auth_token');
+
+    if (!auth_token || !(await isAuthorized(auth_token))) {
+      ctx.response.status = 401;
+      ctx.response.body = { error: "Unauthorized" };
+      return;
+    }
+
+    const username = tokens[auth_token];
+    const users = await client.query(
+      "SELECT id, username, is_admin FROM users WHERE username = ?",
+      [username]
+    );
+
+    if (users.length === 0) {
+      ctx.response.status = 401;
+      ctx.response.body = { error: "User not found" };
+      return;
+    }
+
+    const user = users[0];
+    ctx.response.body = { 
       message: 'Token verified successfully', 
       token_data: {
-          userId: tokenData.userId,
-          username: tokenData.username,
-          isAdmin: tokenData.isAdmin || false,
-          exp: tokenData.exp
+        userId: user.id,
+        username: user.username,
+        isAdmin: Boolean(user.is_admin)
       }
-  };
+    };
+  } catch (error) {
+    console.error("❌ Test cookie error:", error);
+    ctx.response.status = 500;
+    ctx.response.body = { error: "Internal server error" };
+  }
 });
 
 // Fixed CD articles endpoints - replace the existing ones in your main.ts
@@ -1610,37 +1785,80 @@ async function handleChatWebSocket(ctx: any) {
   }
 }
 
-function generateUniqueFileName(originalName: string): string {
-  const timestamp = Date.now();
-  const randomId = Math.random().toString(36).substring(2, 8);
-  const extension = originalName.includes('.') ? '.' + originalName.split('.').pop() : '.jpg';
-  return `${timestamp}_${randomId}${extension}`;
+function generateSessionId(): string {
+  return crypto.randomUUID();
 }
 
-async function saveUploadedFile(file: File): Promise<string> {
-  const fileName = generateUniqueFileName(file.name);
-  const filePath = `${UPLOADS_DIR}/${fileName}`;
+
+function cleanupExpiredTokens() {
+  const now = new Date();
+  const tokensToRemove: string[] = [];
   
-  const arrayBuffer = await file.arrayBuffer();
-  const uint8Array = new Uint8Array(arrayBuffer);
+  for (const [token, userInfo] of Object.entries(tokens)) {
+    const inactiveTime = now.getTime() - userInfo.lastActivity.getTime();
+    // Remove tokens inactive for more than 2 hours
+    if (inactiveTime > 2 * 60 * 60 * 1000) {
+      tokensToRemove.push(token);
+    }
+  }
   
-  await Deno.writeFile(filePath, uint8Array);
+  tokensToRemove.forEach(token => {
+    const userInfo = tokens[token];
+    delete tokens[token];
+    console.log(`🧹 Cleaned up expired token for: ${userInfo.username}`);
+  });
   
-  // Return the URL path that can be used to access the file
-  return `/uploads/${fileName}`;
-}
-
-function isValidImageType(mimeType: string): boolean {
-  const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-  return validTypes.includes(mimeType.toLowerCase());
-}
-
-function isValidFileSize(size: number): boolean {
-  const maxSize = 5 * 1024 * 1024; // 5MB
-  return size <= maxSize;
+  console.log(`📊 Active tokens after cleanup: ${Object.keys(tokens).length}`);
 }
 
 
+setInterval(cleanupExpiredTokens, 30 * 60 * 1000);
+
+
+function generateTokenId(): string {
+  return `${Date.now()}_${crypto.randomUUID()}`;
+}
+
+async function tokenAuthMiddleware(ctx: any, next: () => Promise<unknown>) {
+  try {
+    // Try to get token from Authorization header first
+    let authToken = ctx.request.headers.get("authorization");
+    if (authToken && authToken.startsWith("Bearer ")) {
+      authToken = authToken.substring(7);
+    } else {
+      // Fall back to custom header
+      authToken = ctx.request.headers.get("x-auth-token");
+    }
+
+    if (!authToken) {
+      ctx.response.status = 401;
+      ctx.response.body = { error: "Unauthorized: Missing token" };
+      return;
+    }
+
+    const isValid = await isAuthorized(authToken);
+    if (!isValid) {
+      ctx.response.status = 401;
+      ctx.response.body = { error: "Unauthorized: Invalid or expired token" };
+      return;
+    }
+
+    // Get token info and add to context
+    const tokenInfo = activeTokens[authToken];
+    const tokenPayload = await verify(authToken, secretKey) as TokenPayload;
+    
+    ctx.state.tokenData = {
+      ...tokenPayload,
+      ...tokenInfo
+    };
+    
+    await next();
+  } catch (error) {
+    console.error("❌ Token auth middleware error:", error);
+    ctx.response.status = 401;
+    ctx.response.body = { error: "Unauthorized: Token verification failed" };
+  }
+}
 
 // Also update the ChatManager class to handle string room IDs
 
@@ -1673,7 +1891,7 @@ router.get("/api/debug/articles", async (ctx) => {
     }
 });
 
-router.get("/api/articles/:articleId/messages", authMiddleware, async (ctx) => {
+router.get("/api/articles/:articleId/messages", tokenAuthMiddleware, async (ctx) => {
     try {
         const articleId = parseInt(ctx.params.articleId);
         const limit = parseInt(ctx.request.url.searchParams.get('limit') || '50');
@@ -1698,7 +1916,7 @@ router.get("/api/articles/:articleId/messages", authMiddleware, async (ctx) => {
 });
 
 // Get chat participants for an article
-router.get("/api/articles/:articleId/participants", authMiddleware, async (ctx) => {
+router.get("/api/articles/:articleId/participants", tokenAuthMiddleware, async (ctx) => {
     try {
         const articleId = parseInt(ctx.params.articleId);
         
@@ -1729,7 +1947,7 @@ router.get("/api/articles/:articleId/participants", authMiddleware, async (ctx) 
 });
 
 
-router.get("/api/users/:userId/conversations", authMiddleware, async (ctx) => {
+router.get("/api/users/:userId/conversations", tokenAuthMiddleware, async (ctx) => {
   try {
       const userId = parseInt(ctx.params.userId);
       const tokenData = ctx.state.tokenData as JWTPayload;
@@ -1900,7 +2118,7 @@ router.get("/api/users/:userId/conversations", authMiddleware, async (ctx) => {
 });
 
 // Also add an endpoint to get all messages between two users
-router.get("/api/conversations/:otherUsername/messages", authMiddleware, async (ctx) => {
+router.get("/api/conversations/:otherUsername/messages", tokenAuthMiddleware, async (ctx) => {
   try {
       const otherUsername = ctx.params.otherUsername;
       const tokenData = ctx.state.tokenData as JWTPayload;
@@ -1962,7 +2180,7 @@ router.get("/api/conversations/:otherUsername/messages", authMiddleware, async (
 });
 
 // Delete an article (only by the owner)
-router.delete("/api/articles/:id", authMiddleware, async (ctx) => {
+router.delete("/api/articles/:id", tokenAuthMiddleware, async (ctx) => {
   try {
       const articleId = parseInt(ctx.params.id);
       const tokenData = ctx.state.tokenData as JWTPayload;
@@ -2062,7 +2280,7 @@ router.delete("/api/articles/:id", authMiddleware, async (ctx) => {
 });
 
 // Mark an article as sold (alternative to deletion)
-router.patch("/api/articles/:id/sold", authMiddleware, async (ctx) => {
+router.patch("/api/articles/:id/sold", tokenAuthMiddleware, async (ctx) => {
   try {
       const articleId = parseInt(ctx.params.id);
       const tokenData = ctx.state.tokenData as JWTPayload;
@@ -2134,7 +2352,7 @@ router.patch("/api/articles/:id/sold", authMiddleware, async (ctx) => {
   }
 });
 // Get all articles for the current user
-router.get("/api/users/me/articles", authMiddleware, async (ctx) => {
+router.get("/api/users/me/articles", tokenAuthMiddleware, async (ctx) => {
   try {
       const tokenData = ctx.state.tokenData as JWTPayload;
       const userId = tokenData.userId;
@@ -2285,7 +2503,7 @@ app.use(async (ctx, next) => {
 app.use(oakCors({
   origin: ["http://localhost:8080", "http://127.0.0.1:8080", "http://localhost:3000"], 
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-  allowedHeaders: ["Content-Type", "Authorization", "Cache-Control"],
+  allowedHeaders: ["Content-Type", "Authorization", "Cache-Control", "X-auth-token"],
   credentials: true,
   optionsSuccessStatus: 200
 }));
