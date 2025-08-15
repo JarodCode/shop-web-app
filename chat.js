@@ -1,4 +1,4 @@
-// chat.js - Fixed version with proper WebSocket handling
+// chat.js - Fixed version with proper message ownership handling
 
 class ChatApp {
     constructor() {
@@ -78,8 +78,11 @@ class ChatApp {
                 this.currentUserId = data.token_data.userId;
                 this.currentUsername = data.token_data.username;
                 
-                console.log(`Current user: ${this.currentUsername} (ID: ${this.currentUserId})`);
-                console.log(`Chat with: ${this.otherUsername}${this.articleId ? ` for article: ${this.articleId}` : ''}`);
+                console.log(`✅ Current user identified: ${this.currentUsername} (ID: ${this.currentUserId})`);
+                console.log(`📞 Chat with: ${this.otherUsername}${this.articleId ? ` for article: ${this.articleId}` : ''}`);
+                
+                // ✅ FIXED: Get other user's ID for proper message comparison
+                await this.getOtherUserInfo();
                 
                 this.displayChatInfo();
                 this.connectWebSocket();
@@ -91,6 +94,42 @@ class ChatApp {
             console.error('Error getting current user:', error);
             alert('Error connecting to chat. Please try again.');
             this.goBack();
+        }
+    }
+
+    // ✅ NEW: Get the other user's information for proper message comparison
+    async getOtherUserInfo() {
+        try {
+            // We don't have a direct endpoint to get user by username, 
+            // but we can infer it from the article if available
+            if (this.articleId) {
+                console.log(`🔍 Getting article info to determine other user ID...`);
+                const response = await fetch(`http://localhost:8000/api/articles`, {
+                    credentials: 'include'
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const article = data.articles.find(a => a.id == this.articleId);
+                    
+                    if (article) {
+                        // If current user is the seller, other user is a buyer (we'll get their ID from messages)
+                        // If current user is not the seller, other user is the seller
+                        if (article.user_id === this.currentUserId) {
+                            console.log(`📊 Current user is the seller of article ${this.articleId}`);
+                            // We'll determine buyer ID from messages when they arrive
+                        } else {
+                            this.otherUserId = article.user_id;
+                            console.log(`📊 Other user (seller) ID: ${this.otherUserId}`);
+                        }
+                    }
+                }
+            }
+            
+            console.log(`📊 Chat participants: Current=${this.currentUsername}(${this.currentUserId}), Other=${this.otherUsername}(${this.otherUserId || 'TBD'})`);
+        } catch (error) {
+            console.error('Error getting other user info:', error);
+            // Continue anyway, we'll determine it from messages
         }
     }
 
@@ -268,6 +307,7 @@ class ChatApp {
         }
     }
 
+    // ✅ FIXED: Proper message ownership detection
     addMessage(messageData) {
         const messagesContainer = document.getElementById('messagesContainer');
         const emptyChat = document.getElementById('emptyChat');
@@ -277,10 +317,43 @@ class ChatApp {
         }
 
         const messageElement = document.createElement('div');
-        messageElement.className = `message ${messageData.userId === this.currentUserId ? 'own' : ''}`;
+        
+        // ✅ FIXED: Determine if message is from current user
+        let isOwn = false;
+        
+        // Method 1: Check by userId (most reliable)
+        if (messageData.userId !== undefined && this.currentUserId !== undefined) {
+            isOwn = messageData.userId === this.currentUserId;
+            console.log(`💬 Message ownership by userId: ${messageData.userId} === ${this.currentUserId} = ${isOwn}`);
+        }
+        // Method 2: Check by user_id (for database messages)
+        else if (messageData.user_id !== undefined && this.currentUserId !== undefined) {
+            isOwn = messageData.user_id === this.currentUserId;
+            console.log(`💬 Message ownership by user_id: ${messageData.user_id} === ${this.currentUserId} = ${isOwn}`);
+        }
+        // Method 3: Check by username (fallback)
+        else if (messageData.username && this.currentUsername) {
+            isOwn = messageData.username === this.currentUsername;
+            console.log(`💬 Message ownership by username: "${messageData.username}" === "${this.currentUsername}" = ${isOwn}`);
+        }
+        
+        // ✅ FIXED: If we still don't have other user ID, try to determine it from this message
+        if (!this.otherUserId && !isOwn) {
+            if (messageData.userId) {
+                this.otherUserId = messageData.userId;
+            } else if (messageData.user_id) {
+                this.otherUserId = messageData.user_id;
+            }
+            console.log(`📊 Determined other user ID from message: ${this.otherUserId}`);
+        }
+        
+        messageElement.className = `message ${isOwn ? 'own' : ''}`;
 
-        const isOwn = messageData.userId === this.currentUserId;
-        const avatar = isOwn ? this.currentUsername.charAt(0).toUpperCase() : messageData.username.charAt(0).toUpperCase();
+        // Get the correct username and avatar
+        const senderUsername = messageData.username || 'Unknown';
+        const avatar = senderUsername.charAt(0).toUpperCase();
+        
+        console.log(`💬 Adding message: "${messageData.message}" by ${senderUsername} (isOwn: ${isOwn})`);
         
         messageElement.innerHTML = `
             <div class="message-avatar">${avatar}</div>
@@ -309,6 +382,9 @@ class ChatApp {
 
         messagesContainer.innerHTML = '';
 
+        console.log(`📚 Loading message history: ${messages.length} messages`);
+        console.log(`👤 Current user: ${this.currentUsername} (ID: ${this.currentUserId})`);
+
         if (messages.length === 0) {
             if (emptyChat) {
                 emptyChat.style.display = 'block';
@@ -317,7 +393,10 @@ class ChatApp {
             if (emptyChat) {
                 emptyChat.style.display = 'none';
             }
-            messages.forEach(message => {
+            
+            // ✅ FIXED: Process each message with proper ownership detection
+            messages.forEach((message, index) => {
+                console.log(`📚 Processing history message ${index + 1}: user_id=${message.user_id}, username="${message.username}"`);
                 this.addMessage(message);
             });
         }
