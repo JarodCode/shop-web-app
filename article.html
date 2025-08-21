@@ -3,171 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Article Details - Marketplace</title>
-    <link rel="stylesheet" href="css/styles.css">     <!-- Base styles -->
+    <title>Détails de l'article - Marketplace</title>
     <link rel="stylesheet" href="css/article.css">
 </head>
 <body>
-    <div class="container">
-        <header class="page-header">
+    <div class="article-container">
+        <header class="article-header">
             <div class="header-content">
-                <h1 id="pageTitle">📚 Article Details</h1>
+                <h1 id="pageTitle">Détails de l'article</h1>
                 <div class="header-actions">
                     <a href="marketplace.html">
-                        <button id="backToMarketplaceBtn">← Back to Marketplace</button>
+                        <button id="backToMarketplaceBtn" class="btn btn-secondary">← Retour au marketplace</button>
                     </a>
                     <a href="profile.html">
-                        <button id="backToProfileBtn">Profile</button>
+                        <button id="backToProfileBtn" class="btn btn-secondary">Profil</button>
                     </a>
                 </div>
             </div>
         </header>
 
-        <!-- Loading State -->
-        <div class="loading-container" id="loadingContainer">
-            <div class="loading-spinner">
-                <div class="spinner"></div>
-                <p id="loadingText">Loading article details...</p>
-            </div>
-        </div>
+        <div class="content-wrapper">
 
-        <!-- Error State -->
-        <div class="error-container" id="errorContainer" style="display: none;">
-            <div class="error-message">
-                <h3>Unable to Load Article</h3>
-                <p id="errorText">Please check your connection and try again.</p>
-                <button id="retryBtn">Retry</button>
-                <a href="marketplace.html">
-                    <button id="backToMarketplaceBtn2">Back to Marketplace</button>
-                </a>
-            </div>
-        </div>
+            <!-- Article Content -->
+            <section class="article-details-section" id="articleDetailsSection" style="display: none;">
+                <div class="article-details-container">
 
-        <!-- Article Content -->
-        <section class="article-details-section" id="articleDetailsSection" style="display: none;">
-            <div class="article-details-container">
-                <div class="article-image-section">
-                    <div class="article-main-image">
-                        <img id="articleImage" src="" alt="" onerror="this.src=''">
-                        <div id="soldBadge" class="sold-badge" style="display: none;">SOLD</div>
-                    </div>
-                </div>
+                    <div class="article-info-section">
+                        <div class="article-header-info">
+                            <div class="article-type-badge" id="articleTypeBadge"></div>
+                            <h1 id="articleTitle" class="article-title"></h1>
+                            <p id="articleSubtitle" class="article-subtitle"></p>
+                        </div>
+                        <div class="article-price-section">
+                            <span id="articlePrice" class="article-price"></span>
+                            <div id="articleStatus" class="article-status"></div>
+                        </div>
 
-                <div class="article-info-section">
-                    <div class="article-header">
-                        <div class="article-type-badge" id="articleTypeBadge"></div>
-                        <h1 id="articleTitle" class="article-title"></h1>
-                        <p id="articleSubtitle" class="article-subtitle"></p>
-                    </div>
+                        <div class="article-description">
+                            <h3>Description</h3>
+                            <p id="articleDescription"></p>
+                        </div>
 
-                    <div class="article-price-section">
-                        <span id="articlePrice" class="article-price"></span>
-                        <div id="articleStatus" class="article-status"></div>
-                    </div>
+                        <div class="article-details">
+                            <h3>Détails</h3>
+                            <div id="articleDetailsContent" class="details-grid"></div>
+                        </div>
 
-                    <div class="article-description">
-                        <h3>Description</h3>
-                        <p id="articleDescription"></p>
-                    </div>
-
-                    <div class="article-details">
-                        <h3>Details</h3>
-                        <div id="articleDetailsContent" class="details-grid"></div>
-                    </div>
-
-                    <div class="seller-info">
-                        <h3>Seller Information</h3>
-                        <div class="seller-card">
-                            <div class="seller-avatar">
-                                <span id="sellerInitial"></span>
-                            </div>
-                            <div class="seller-details">
+                        <div class="seller-info">
+                            <h3>Vendeur</h3>
+                            <div class="seller-card">
                                 <h4 id="sellerUsername"></h4>
-                                <p>Member since <span id="sellerJoinDate"></span></p>
                             </div>
                         </div>
-                    </div>
 
-                    <div class="article-actions">
-                        <button id="contactSellerBtn" class="btn-primary">
-                            📧 Contact Seller
-                        </button>
-                        <button id="shareArticleBtn" class="btn-secondary">
-                            🔗 Share Article
-                        </button>
-                        <button id="reportArticleBtn" class="btn-tertiary">
-                            🚩 Report
-                        </button>
-                    </div>
-
-                    <div class="article-meta">
-                        <p>Posted on <span id="articleDate"></span></p>
-                        <p>Last updated <span id="articleUpdated"></span></p>
-                        <p>Article ID: <span id="articleId"></span></p>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Contact Seller Modal -->
-        <div class="modal-overlay" id="contactModal" style="display: none;">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>Contact Seller</h3>
-                    <button id="closeContactModal">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="contact-info">
-                        <p>You're about to contact <strong id="contactSellerName"></strong> about:</p>
-                        <p><strong id="contactItemName"></strong></p>
-                    </div>
-                    <div class="contact-form">
-                        <p><strong>This feature is coming soon!</strong></p>
-                        <p>In the future, you'll be able to:</p>
-                        <ul>
-                            <li>Send direct messages to sellers</li>
-                            <li>Ask questions about items</li>
-                            <li>Negotiate prices</li>
-                            <li>Arrange meetups</li>
-                        </ul>
-                        <p>For now, you can bookmark this item and check back later.</p>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button id="bookmarkBtn" class="btn-secondary">📑 Bookmark Item</button>
-                    <button id="closeContactModalBtn" class="btn-primary">Close</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Share Modal -->
-        <div class="modal-overlay" id="shareModal" style="display: none;">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>Share Article</h3>
-                    <button id="closeShareModal">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="share-options">
-                        <p>Share this article:</p>
-                        <div class="share-url">
-                            <input type="text" id="shareUrl" readonly>
-                            <button id="copyUrlBtn" class="btn-secondary">Copy</button>
+                        <div class="article-actions">
+                            <button id="contactSellerBtn" class="btn btn-primary">
+                                Contacter le vendeur
+                            </button>
                         </div>
-                        <div class="share-buttons">
-                            <button id="shareEmailBtn" class="btn-secondary">📧 Email</button>
-                            <button id="shareTwitterBtn" class="btn-secondary">🐦 Twitter</button>
-                            <button id="shareFacebookBtn" class="btn-secondary">📘 Facebook</button>
+
+                        <div class="article-meta">
+                            <p>Publié le <span id="articleDate"></span></p>
                         </div>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button id="closeShareModalBtn" class="btn-primary">Close</button>
-                </div>
-            </div>
+            </section>
         </div>
-    </div>
-
     <script src="article.js"></script>
 </body>
 </html>

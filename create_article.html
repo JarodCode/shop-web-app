@@ -3,97 +3,97 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Create Article - Authentication System</title>
-    <link rel="stylesheet" href="css/styles.css">     <!-- Base styles -->
-    <link rel="stylesheet" href="css/create-article.css">
+    <title>Créer un article - Marketplace</title>
+    <link rel="stylesheet" href="css/create_article.css">
 </head>
 <body>
-    <div class="container">
-        <header class="page-header">
-            <h1>Create New Article</h1>
-            <div class="header-actions">
-                <button id="backBtn" class="back-btn">← Back to Profile</button>
-                <button id="logoutBtn" class="logout-btn">Logout</button>
+    <div class="create-article-container">
+        <header class="create-article-header">
+            <div class="header-content">
+                <h1>Créer un nouvel article</h1>
+                <div class="header-actions">
+                    <button id="backBtn" class="btn btn-secondary">← Retour au profil</button>
+                    <button id="logoutBtn" class="btn btn-tertiary">Déconnexion</button>
+                </div>
             </div>
         </header>
 
-        <main class="main-content">
-            <section class="item-type-selection">
-                <h2>Select Item Type</h2>
-                <div class="type-buttons">
-                    <button id="bookTypeBtn" class="type-btn" data-type="book">
-                        <div class="type-icon">📚</div>
-                        <div class="type-text">Book</div>
-                    </button>
-                    <button id="dvdTypeBtn" class="type-btn" data-type="dvd">
-                        <div class="type-icon">📀</div>
-                        <div class="type-text">DVD</div>
-                    </button>
-                    <button id="cdTypeBtn" class="type-btn" data-type="cd">
-                        <div class="type-icon">💿</div>
-                        <div class="type-text">CD</div>
-                    </button>
-                </div>
-            </section>
+        <div class="content-wrapper">
+            <div class="create-article-content">
+                <section class="item-type-selection">
+                    <h2>Sélectionner le type d'article</h2>
+                    <div class="type-buttons">
+                        <button id="bookTypeBtn" class="type-btn" data-type="book">
+                            <div class="type-text">Livre</div>
+                        </button>
+                        <button id="dvdTypeBtn" class="type-btn" data-type="dvd">
+                            <div class="type-text">DVD</div>
+                        </button>
+                        <button id="cdTypeBtn" class="type-btn" data-type="cd">
+                            <div class="type-text">CD</div>
+                        </button>
+                    </div>
+                </section>
 
-            <section class="item-creation-section" id="itemCreationSection" style="display: none;">
-                <h2>Create Item</h2>
-                <div class="form-container">
-                    <form id="itemForm">
-                        <!-- Form fields will be dynamically inserted here based on selected type -->
-                        
-                        <div class="form-actions">
-                            <button type="submit" id="createItemBtn" class="create-btn">Create Item</button>
-                            <button type="button" id="cancelItemBtn" class="cancel-btn">Cancel</button>
-                        </div>
-                    </form>
-                </div>
-            </section>
-
-            <section class="article-creation-section" id="articleCreationSection" style="display: none;">
-                <h2>Create Article for Sale</h2>
-                <div class="item-preview" id="itemPreview"></div>
-                
-                <div class="form-container">
-                    <form id="articleForm">
-                        <div class="form-group">
-                            <label for="articleDescription">Description</label>
-                            <textarea id="articleDescription" name="description" rows="4" placeholder="Describe the condition and any additional details about the item..."></textarea>
-                        </div>
-                        <div class="form-group">
-                            <label for="articlePrice">Price *</label>
-                            <div class="price-input">
-                                <span class="currency">$</span>
-                                <input type="number" id="articlePrice" name="price" step="0.01" min="0" required>
+                <section class="item-creation-section" id="itemCreationSection" style="display: none;">
+                    <h2>Créer l'article</h2>
+                    <div class="form-container">
+                        <form id="itemForm">
+                            <!-- Form fields will be dynamically inserted here based on selected type -->
+                            
+                            <div class="form-actions">
+                                <button type="submit" id="createItemBtn" class="btn btn-primary">Créer l'article</button>
+                                <button type="button" id="cancelItemBtn" class="btn btn-secondary">Annuler</button>
                             </div>
-                        </div>
-                        
-                        <div class="form-actions">
-                            <button type="submit" id="createArticleBtn" class="create-btn primary">Create Article</button>
-                            <button type="button" id="cancelArticleBtn" class="cancel-btn">Cancel</button>
-                        </div>
-                    </form>
-                </div>
-            </section>
-        </main>
+                        </form>
+                    </div>
+                </section>
+
+                <section class="article-creation-section" id="articleCreationSection" style="display: none;">
+                    <h2>Créer l'annonce de vente</h2>
+                    <div class="item-preview" id="itemPreview"></div>
+                    
+                    <div class="form-container">
+                        <form id="articleForm">
+                            <div class="form-group">
+                                <label for="articleDescription">Description</label>
+                                <textarea id="articleDescription" name="description" rows="4" placeholder="Décrivez l'état et les détails supplémentaires de l'article..."></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="articlePrice">Prix *</label>
+                                <div class="price-input">
+                                    <span class="currency">€</span>
+                                    <input type="number" id="articlePrice" name="price" step="0.01" min="0" required>
+                                </div>
+                            </div>
+                            
+                            <div class="form-actions">
+                                <button type="submit" id="createArticleBtn" class="btn btn-primary">Publier l'article</button>
+                                <button type="button" id="cancelArticleBtn" class="btn btn-secondary">Annuler</button>
+                            </div>
+                        </form>
+                    </div>
+                </section>
+            </div>
+        </div>
 
         <!-- Loading overlay -->
         <div class="loading-overlay" id="loadingOverlay" style="display: none;">
             <div class="loading-spinner">
                 <div class="spinner"></div>
-                <p id="loadingText">Creating item...</p>
+                <p id="loadingText">Création de l'article...</p>
             </div>
         </div>
 
         <!-- Success message -->
         <div class="success-message" id="successMessage" style="display: none;">
             <div class="success-content">
-                <h3>✅ Success!</h3>
-                <p id="successText">Article created successfully!</p>
+                <h3>Succès!</h3>
+                <p id="successText">Article créé avec succès!</p>
                 <div class="success-actions">
-                    <button id="viewArticleBtn" class="success-btn">View Article</button>
-                    <button id="createAnotherBtn" class="success-btn secondary">Create Another</button>
-                    <button id="backToProfileBtn" class="success-btn secondary">Back to Profile</button>
+                    <button id="viewArticleBtn" class="btn btn-primary">Voir l'article</button>
+                    <button id="createAnotherBtn" class="btn btn-secondary">Créer un autre</button>
+                    <button id="backToProfileBtn" class="btn btn-secondary">Retour au profil</button>
                 </div>
             </div>
         </div>
@@ -101,11 +101,11 @@
         <!-- Error message -->
         <div class="error-message" id="errorMessage" style="display: none;">
             <div class="error-content">
-                <h3>❌ Error</h3>
-                <p id="errorText">Something went wrong. Please try again.</p>
+                <h3>Erreur</h3>
+                <p id="errorText">Une erreur s'est produite. Veuillez réessayer.</p>
                 <div class="error-actions">
-                    <button id="retryBtn" class="error-btn">Retry</button>
-                    <button id="dismissErrorBtn" class="error-btn secondary">Dismiss</button>
+                    <button id="retryBtn" class="btn btn-primary">Réessayer</button>
+                    <button id="dismissErrorBtn" class="btn btn-secondary">Fermer</button>
                 </div>
             </div>
         </div>

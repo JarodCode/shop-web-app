@@ -3,51 +3,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Conversations - Marketplace</title>
-    <link rel="stylesheet" href="css/styles.css">     <!-- Base styles -->
+    <title>Mes conversations - Marketplace</title>
     <link rel="stylesheet" href="css/conversations.css">
 </head>
 <body>
-    <div class="container">
-        <!-- Header -->
+    <div class="conversations-container">
         <header class="conversations-header">
-            <div class="header-left">
-                <button id="backButton" class="back-button">← Back</button>
-                <h1>My Conversations</h1>
-            </div>
-            <div class="header-right">
-                <span id="conversationCount" class="conversation-count">0 conversations</span>
+            <div class="header-content">
+                <h1>Mes conversations</h1>
+                <div class="header-actions">
+                    <button id="backButton" class="btn btn-secondary">← Retour au profil</button>
+                </div>
             </div>
         </header>
 
-        <!-- Loading State -->
-        <div class="loading-overlay" id="loadingOverlay">
-            <div class="loading-spinner">
-                <div class="spinner"></div>
-                <p>Loading conversations...</p>
+        <div class="content-wrapper">
+            <!-- Loading -->
+            <div class="loading-container" id="loadingOverlay">
+                <div class="loading-spinner">
+                    <div class="spinner"></div>
+                    <p>Chargement des conversations...</p>
+                </div>
             </div>
-        </div>
 
-        <!-- Error State -->
-        <div class="error-message" id="errorMessage" style="display: none;">
-            <h3>Error Loading Conversations</h3>
-            <p id="errorText">Unable to load your conversations.</p>
-            <button id="retryBtn" class="retry-btn">Retry</button>
-        </div>
+            <!-- Error -->
+            <div class="error-container" id="errorMessage" style="display: none;">
+                <div class="error-content">
+                    <h3>Erreur de chargement</h3>
+                    <p id="errorText">Impossible de charger vos conversations.</p>
+                    <button id="retryBtn" class="btn btn-primary">Réessayer</button>
+                </div>
+            </div>
 
-        <!-- Empty State -->
-        <div class="empty-conversations" id="emptyConversations" style="display: none;">
-            <div class="empty-icon">💬</div>
-            <h3>No conversations yet</h3>
-            <p>Start browsing items to begin chatting with sellers!</p>
-            <a href="marketplace.html">
-                <button class="browse-btn">Browse Marketplace</button>
-            </a>
-        </div>
+            <!-- Empty -->
+            <div class="empty-conversations" id="emptyConversations" style="display: none;">
+                <div class="empty-content">
+                    <div class="empty-icon"></div>
+                    <h3>Aucune conversation</h3>
+                    <p>Commencez à parcourir les articles pour commencer à discuter avec les vendeurs!</p>
+                    <a href="marketplace.html">
+                        <button class="btn btn-primary">Parcourir le marketplace</button>
+                    </a>
+                </div>
+            </div>
 
-        <!-- Conversations List -->
-        <div class="conversations-list" id="conversationsList">
-            <!-- Conversation items will be dynamically added here -->
+            <!-- Conversations -->
+            <section class="conversations-section" id="conversationsSection">
+                <div class="conversations-list" id="conversationsList">
+                </div>
+            </section>
         </div>
     </div>
 

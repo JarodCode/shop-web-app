@@ -26,4 +26,3 @@ app.use(router.allowedMethods());
 
 console.log(`Oak server without cors/csp running on http://localhost:${PORT}/`);
 await app.listen({ port: PORT });
-

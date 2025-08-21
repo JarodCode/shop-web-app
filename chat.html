@@ -4,32 +4,30 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chat - Marketplace</title>
-    <link rel="stylesheet" href="css/styles.css">     <!-- Base styles -->
     <link rel="stylesheet" href="css/chat.css">
 </head>
 <body>
     <div class="chat-container">
         <!-- Chat Header -->
         <div class="chat-header">
-            <button id="backButton" class="back-button">← Back</button>
+            <button id="backButton" class="back-button">← Retour</button>
             <div id="chatPartnerAvatar" class="chat-partner-avatar">?</div>
             <div class="chat-info">
-                <h2 id="chatPartnerName">Loading...</h2>
-                <div id="chatSubtitle" class="chat-subtitle">Connecting...</div>
+                <h2 id="chatPartnerName">Chargement...</h2>
             </div>
-            <div id="connectionStatus" class="connection-status connecting">Connecting...</div>
+            <div id="connectionStatus" class="connection-status connecting">Connexion...</div>
         </div>
 
         <!-- Messages Container -->
         <div id="messagesContainer" class="messages-container">
             <div id="emptyChat" class="empty-chat">
-                No messages yet. Start the conversation!
+                Aucun message pour le moment. Commencez la conversation!
             </div>
         </div>
 
         <!-- Typing Indicator -->
         <div id="typingIndicator" class="typing-indicator">
-            <span id="typingUser">Someone</span> is typing
+            <span id="typingUser">Quelqu'un</span> est en train d'écrire
             <div class="typing-dots">
                 <div class="typing-dot"></div>
                 <div class="typing-dot"></div>
@@ -43,10 +41,10 @@
                 <textarea 
                     id="messageInput" 
                     class="message-input" 
-                    placeholder="Type your message..."
+                    placeholder="Tapez votre message..."
                     rows="1"
                 ></textarea>
-                <button id="sendButton" class="send-button" disabled>Send</button>
+                <button id="sendButton" class="send-button" disabled>Envoyer</button>
             </div>
         </div>
     </div>

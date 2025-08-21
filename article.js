@@ -1,12 +1,10 @@
-// article.js - Fixed version with proper admin delete functionality
-
 class ArticleDetailsApp {
     constructor() {
         this.articleId = null;
         this.article = null;
         this.currentUserId = null;
         this.currentUsername = null;
-        this.isAdmin = false; // Add admin status tracking
+        this.isAdmin = false;
         this.init();
     }
 
@@ -17,35 +15,36 @@ class ArticleDetailsApp {
         if (this.articleId) {
             this.loadArticleDetails();
         } else {
-            this.showError('No article ID provided');
+            this.showError('Aucun ID d\'article fourni');
         }
     }
 
+    // Vérifier l'authentification et récupérer les informations utilisateur
     async getCurrentUser() {
         try {
             const response = await fetch('http://localhost:8000/test_cookie', {
-                credentials: 'include'
+                credentials: 'include'  // Inclut les cookies pour l'authentification
             });
 
             if (response.ok) {
                 const data = await response.json();
+                // Stocke les données utilisateur pour les vérifications de permissions ultérieures
                 this.currentUserId = data.token_data.userId;
                 this.currentUsername = data.token_data.username;
-                this.isAdmin = data.token_data.isAdmin || false; // Get admin status
-                console.log(`Current user: ${this.currentUsername}, Admin: ${this.isAdmin}`);
-            } else {
-                console.log('User not authenticated');
+                this.isAdmin = data.token_data.isAdmin || false;
             }
         } catch (error) {
-            console.error('Error getting current user:', error);
+            console.error('Erreur lors de la récupération de l\'utilisateur actuel:', error);
         }
     }
 
+    // Parse l'URL actuelle pour extraire le paramètre 'id' qui identifie l'article à afficher
     getArticleIdFromUrl() {
         const urlParams = new URLSearchParams(window.location.search);
         this.articleId = urlParams.get('id');
     }
 
+    // Charge les informations
     setupEventListeners() {
         const retryBtn = document.getElementById('retryBtn');
         if (retryBtn) {
@@ -54,63 +53,17 @@ class ArticleDetailsApp {
 
         const contactSellerBtn = document.getElementById('contactSellerBtn');
         if (contactSellerBtn) {
+            // Ce bouton change de fonction selon le contexte (chat ou supprimer)
             contactSellerBtn.addEventListener('click', () => this.handleContactButtonClick());
-        }
-
-        const shareArticleBtn = document.getElementById('shareArticleBtn');
-        if (shareArticleBtn) {
-            shareArticleBtn.addEventListener('click', () => this.handleShareButtonClick());
         }
 
         const reportArticleBtn = document.getElementById('reportArticleBtn');
         if (reportArticleBtn) {
             reportArticleBtn.addEventListener('click', () => this.reportArticle());
         }
-
-        this.setupModalControls('shareModal', 'closeShareModal', 'closeShareModalBtn');
-
-        const copyUrlBtn = document.getElementById('copyUrlBtn');
-        if (copyUrlBtn) {
-            copyUrlBtn.addEventListener('click', () => this.copyShareUrl());
-        }
-
-        const shareEmailBtn = document.getElementById('shareEmailBtn');
-        const shareTwitterBtn = document.getElementById('shareTwitterBtn');
-        const shareFacebookBtn = document.getElementById('shareFacebookBtn');
-
-        if (shareEmailBtn) {
-            shareEmailBtn.addEventListener('click', () => this.shareViaEmail());
-        }
-        if (shareTwitterBtn) {
-            shareTwitterBtn.addEventListener('click', () => this.shareViaTwitter());
-        }
-        if (shareFacebookBtn) {
-            shareFacebookBtn.addEventListener('click', () => this.shareViaFacebook());
-        }
     }
 
-    setupModalControls(modalId, closeButtonId, closeButtonId2) {
-        const modal = document.getElementById(modalId);
-        const closeBtn1 = document.getElementById(closeButtonId);
-        const closeBtn2 = document.getElementById(closeButtonId2);
-
-        if (modal) {
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) {
-                    this.closeModal(modalId);
-                }
-            });
-        }
-
-        if (closeBtn1) {
-            closeBtn1.addEventListener('click', () => this.closeModal(modalId));
-        }
-
-        if (closeBtn2) {
-            closeBtn2.addEventListener('click', () => this.closeModal(modalId));
-        }
-    }
-
+    // Récupère tous les articles de l'API puis filtre pour trouver celui correspondant à l'id
     async loadArticleDetails() {
         this.showLoading();
         this.hideError();
@@ -120,189 +73,129 @@ class ArticleDetailsApp {
             const response = await fetch(`http://localhost:8000/api/articles`);
             
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                throw new Error(`Erreur HTTP! statut: ${response.status}`);
             }
 
             const data = await response.json();
             const articles = data.articles || [];
             
+            // Trouve l'article spécifique parmi tous les articles retournés
             this.article = articles.find(article => article.id == this.articleId);
             
             if (!this.article) {
-                throw new Error('Article not found');
+                throw new Error('Article non trouvé');
             }
             
             this.displayArticleDetails();
             
         } catch (error) {
-            console.error('Error loading article details:', error);
-            this.showError('Failed to load article details. Please check your connection and try again.');
+            this.showError('Échec du chargement des détails de l\'article. Veuillez vérifier votre connexion et réessayer.');
         } finally {
             this.hideLoading();
         }
     }
 
+    // Affiche toutes les sections de la page avec les données de l'article
+    // Détermine également le type d'article (livre, DVD, CD)
     displayArticleDetails() {
         if (!this.article) return;
 
+        // Adapte l'extraction des données selon la structure de l'objet article
         const itemInfo = this.article.book_info || this.article.dvd_info || this.article.cd_info || this.article.item_info;
-        const title = itemInfo?.title || itemInfo?.author || 'Untitled';
+        const title = itemInfo?.title || itemInfo?.author || 'Sans titre';
         const subtitle = this.getSubtitle(this.article, itemInfo);
 
+        // Met à jour le titre de l'onglet du navigateur
         document.title = `${title} - Marketplace`;
-        const pageTitle = document.getElementById('pageTitle');
-        if (pageTitle) {
-            pageTitle.textContent = `${this.getItemTypeEmoji(this.article.item_type)} ${title}`;
-        }
 
-        const articleImage = document.getElementById('articleImage');
-        if (articleImage) {
-            // Clear any existing content and add large emoji icon
-            articleImage.parentElement.innerHTML = `
-                <div class="article-main-image">
-                    <div class="item-type-display">
-                        <div class="large-icon">${this.getItemTypeEmoji(this.article.item_type)}</div>
-                        <div class="item-type-label">${this.article.item_type.toUpperCase()}</div>
-                    </div>
-                    ${this.article.is_sold ? '<div class="sold-badge">SOLD</div>' : ''}
-                </div>
-            `;
-        }
-
-        const soldBadge = document.getElementById('soldBadge');
-        if (soldBadge) {
-            soldBadge.style.display = this.article.is_sold ? 'block' : 'none';
-        }
-
-        const typeBadge = document.getElementById('articleTypeBadge');
-        if (typeBadge) {
-            typeBadge.textContent = this.article.item_type.toUpperCase();
-            typeBadge.className = `article-type-badge ${this.article.item_type}`;
-        }
-
+        // Remplit les éléments textuels principaux de la page
         const articleTitle = document.getElementById('articleTitle');
         const articleSubtitle = document.getElementById('articleSubtitle');
         if (articleTitle) articleTitle.textContent = title;
         if (articleSubtitle) articleSubtitle.textContent = subtitle;
 
+        // Formate et affiche le prix avec deux décimales
         const articlePrice = document.getElementById('articlePrice');
-        const articleStatus = document.getElementById('articleStatus');
         if (articlePrice) {
             articlePrice.textContent = `$${this.article.price.toFixed(2)}`;
         }
-        if (articleStatus) {
-            articleStatus.textContent = this.article.is_sold ? 'SOLD' : 'Available';
-            articleStatus.className = `article-status ${this.article.is_sold ? 'sold' : 'available'}`;
-        }
 
+        // Affiche la description ou un message par défaut si vide
         const articleDescription = document.getElementById('articleDescription');
         if (articleDescription) {
-            articleDescription.textContent = this.article.description || 'No description provided.';
+            articleDescription.textContent = this.article.description || 'Aucune description fournie.';
         }
 
+        // Appelle les méthodes spécialisées pour chaque section de la page
         this.displayArticleDetailsGrid(itemInfo);
         this.displaySellerInfo();
-        this.displayArticleMetadata();
+        this.displayArticleCreationDate();
         this.updateContactButton();
-        this.addAdminControls(); // Add admin controls if user is admin
-
-        const shareUrl = document.getElementById('shareUrl');
-        if (shareUrl) {
-            shareUrl.value = window.location.href;
-        }
+        this.addAdminControls();
 
         this.showArticleDetails();
     }
 
+    // Adapte le bouton principal selon la relation entre l'utilisateur et l'article (chat ou supprimer)
     updateContactButton() {
         const contactBtn = document.getElementById('contactSellerBtn');
-        const shareBtn = document.getElementById('shareArticleBtn');
         
         if (!contactBtn) return;
 
+        // Vérifie si l'utilisateur connecté est le propriétaire de l'article
         const isOwnArticle = this.currentUserId && this.article.user_id === this.currentUserId;
-        const isLoggedIn = this.currentUserId !== null;
-        const isSold = this.article.is_sold;
 
         if (isOwnArticle) {
-            // Owner sees delete button
-            contactBtn.textContent = '🗑️ Delete Article';
-            contactBtn.title = 'Delete this article';
+            // Pour le propriétaire : bouton de suppression rouge
+            contactBtn.textContent = 'Supprimer l\'article';
+            contactBtn.title = 'Supprimer cet article';
             contactBtn.className = 'btn-primary btn-delete';
             contactBtn.disabled = false;
             contactBtn.dataset.action = 'delete';
-            
-            // Change share button to toggle sold status
-            if (shareBtn) {
-                shareBtn.textContent = isSold ? '✅ Mark Available' : '💰 Mark as Sold';
-                shareBtn.title = isSold ? 'Mark this item as available' : 'Mark this item as sold';
-                shareBtn.dataset.action = 'toggle-sold';
-            }
-        } else if (!isLoggedIn) {
-            contactBtn.disabled = true;
-            contactBtn.textContent = '🔒 Login to Contact';
-            contactBtn.title = 'Please log in to contact the seller';
-            contactBtn.dataset.action = 'login-required';
-        } else if (isSold) {
-            contactBtn.disabled = true;
-            contactBtn.textContent = '❌ Item Sold';
-            contactBtn.title = 'This item has been sold';
-            contactBtn.dataset.action = 'item-sold';
         } else {
+            // Pour les autres utilisateurs : bouton de chat
             contactBtn.disabled = false;
-            contactBtn.textContent = '💬 Chat with Seller';
-            contactBtn.title = 'Start a chat with the seller';
+            contactBtn.textContent = 'Discuter avec le vendeur';
+            contactBtn.title = 'Commencer une discussion avec le vendeur';
             contactBtn.dataset.action = 'chat';
         }
     }
 
+    // Affichage du panneau de contrôle administrateur si l'utilisateur l'est
     addAdminControls() {
-        // Only add admin controls if user is admin and not the owner
         if (!this.isAdmin || (this.currentUserId && this.article.user_id === this.currentUserId)) {
             return;
         }
 
-        console.log('Adding admin controls for article', this.articleId);
-
-        // Check if admin controls already exist
+        // Supprime les contrôles existants pour éviter les doublons
         let adminControls = document.getElementById('adminControls');
         if (adminControls) {
             adminControls.remove();
         }
 
-        // Create admin controls section
         adminControls = document.createElement('div');
         adminControls.id = 'adminControls';
         adminControls.className = 'admin-controls';
         adminControls.innerHTML = `
             <div class="admin-header">
-                <h3>👑 Admin Controls</h3>
-                <span class="admin-badge">Administrator</span>
+                <h3>Contrôles Administrateur</h3>
+                <span class="admin-badge">Administrateur</span>
             </div>
             <div class="admin-actions">
                 <button id="adminDeleteBtn" class="btn-danger admin-btn">
-                    🗑️ Delete Article (Admin)
+                    Supprimer l'Article
                 </button>
-                <button id="adminToggleSoldBtn" class="btn-secondary admin-btn">
-                    ${this.article.is_sold ? '✅ Mark Available (Admin)' : '💰 Mark as Sold (Admin)'}
-                </button>
-            </div>
-            <div class="admin-warning">
-                ⚠️ Admin actions will be logged and are permanent
             </div>
         `;
 
-        // Add styles for admin controls
         const style = document.createElement('style');
         style.textContent = `
             .admin-controls {
-                background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+                background: #ff0000ff;
                 color: white;
                 padding: 20px;
                 border-radius: 10px;
                 margin: 20px 0;
-                border: 2px solid #fca5a5;
-                box-shadow: 0 4px 6px rgba(220, 38, 38, 0.3);
             }
             
             .admin-header {
@@ -356,69 +249,42 @@ class ArticleDetailsApp {
                 transform: translateY(-2px);
                 box-shadow: 0 4px 8px rgba(220, 38, 38, 0.4);
             }
-            
-            .admin-warning {
-                background: rgba(255, 255, 255, 0.1);
-                padding: 10px;
-                border-radius: 6px;
-                font-size: 0.85em;
-                text-align: center;
-                border-left: 4px solid #fbbf24;
-            }
-            
-            @media (max-width: 768px) {
-                .admin-actions {
-                    flex-direction: column;
-                }
-                
-                .admin-btn {
-                    width: 100%;
-                }
-            }
         `;
         document.head.appendChild(style);
 
-        // Insert admin controls after article actions
+        // Trouve un point d'affichage dans la page existante
         const articleActions = document.querySelector('.article-actions');
         if (articleActions) {
             articleActions.parentNode.insertBefore(adminControls, articleActions.nextSibling);
         }
 
-        // Add event listeners for admin buttons
+        // Connecte le gestionnaire d'événements au nouveau bouton
         const adminDeleteBtn = document.getElementById('adminDeleteBtn');
-        const adminToggleSoldBtn = document.getElementById('adminToggleSoldBtn');
-
         if (adminDeleteBtn) {
             adminDeleteBtn.addEventListener('click', () => this.adminDeleteArticle());
         }
-
-        if (adminToggleSoldBtn) {
-            adminToggleSoldBtn.addEventListener('click', () => this.adminToggleSoldStatus());
-        }
     }
 
+    // Processus de suppression administrative avec double confirmation
+    // Envoie une requête DELETE à l'API avec les credentials pour l'autorisation
     async adminDeleteArticle() {
+        // Construit un titre lisible pour les confirmations selon le type d'article
         const title = this.article.book_info?.title || 
                      this.article.dvd_info?.title || 
                      this.article.cd_info?.author || 
                      this.article.item_info?.title || 
                      this.article.item_info?.author || 
-                     'this article';
+                     'cet article';
                      
         const sellerUsername = this.article.seller_username;
         
-        if (!confirm(`⚠️ ADMIN ACTION ⚠️\n\nAre you sure you want to delete "${title}" by ${sellerUsername}?\n\nThis action:\n- Cannot be undone\n- Will delete all related chat messages\n- Will be logged as an admin action\n\nProceed with deletion?`)) {
+        // Première confirmation avec explication des conséquences
+        if (!confirm(`⚠️ ACTION ADMINISTRATEUR ⚠️\n\nÊtes-vous sûr de vouloir supprimer "${title}" de ${sellerUsername}?\n`)) {
             return;
         }
-
-        // Double confirmation for admin deletions
-        if (!confirm(`FINAL CONFIRMATION\n\nYou are about to permanently delete this article as an administrator.\n\nClick OK to proceed with deletion.`)) {
-            return;
-        }
-
         try {
-            console.log(`Admin attempting to delete article ${this.articleId}`);
             
+            // Envoie la requête de suppression avec authentification par cookie
             const response = await fetch(`http://localhost:8000/api/articles/${this.articleId}`, {
                 method: 'DELETE',
                 credentials: 'include',
@@ -429,111 +295,51 @@ class ArticleDetailsApp {
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                throw new Error(errorData.error || `Erreur HTTP! statut: ${response.status}`);
             }
 
-            console.log('Article deleted successfully by admin');
-            alert(`✅ Admin Action Completed\n\nArticle "${title}" has been deleted successfully.\n\nRedirecting to marketplace...`);
             
-            // Redirect to marketplace
+            // Redirige vers la page principale après succès
             window.location.href = 'marketplace.html';
 
         } catch (error) {
-            console.error('Error deleting article (admin):', error);
-            alert(`❌ Admin Deletion Failed\n\n${error.message}\n\nPlease try again or contact system administrator.`);
+            alert(`Échec de la Suppression Administrateur\n\n${error.message}\n\nVeuillez réessayer ou contacter l'administrateur système.`);
         }
     }
 
-    async adminToggleSoldStatus() {
-        const title = this.article.book_info?.title || 
-                     this.article.dvd_info?.title || 
-                     this.article.cd_info?.author || 
-                     this.article.item_info?.title || 
-                     this.article.item_info?.author || 
-                     'this article';
-                     
-        const sellerUsername = this.article.seller_username;
-        const newStatus = this.article.is_sold ? 'available' : 'sold';
-        
-        if (!confirm(`⚠️ ADMIN ACTION ⚠️\n\nMark "${title}" by ${sellerUsername} as ${newStatus}?\n\nThis action will be logged as an admin override.`)) {
-            return;
-        }
-
-        try {
-            const response = await fetch(`http://localhost:8000/api/articles/${this.articleId}/sold`, {
-                method: 'PATCH',
-                credentials: 'include',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-            this.article.is_sold = data.article.is_sold;
-            
-            // Refresh the display
-            this.displayArticleDetails();
-            
-            const status = data.article.is_sold ? 'sold' : 'available';
-            alert(`✅ Admin Action Completed\n\nArticle marked as ${status} successfully.`);
-
-        } catch (error) {
-            console.error('Error updating article status (admin):', error);
-            alert('❌ Failed to update article status. Please try again.');
-        }
-    }
-
+    // Routeur qui détermine l'action à effectuer selon l'état du bouton contact (chat ou supprimer)
+    // Lit l'attribut défini dans updateContactButton()
     handleContactButtonClick() {
         const contactBtn = document.getElementById('contactSellerBtn');
         const action = contactBtn?.dataset.action;
 
         switch (action) {
             case 'delete':
-                this.deleteArticle();
+                this.deleteArticle();  // Suppression par le propriétaire
                 break;
             case 'chat':
-                this.openChat();
-                break;
-            case 'login-required':
-                alert('Please log in to contact the seller.');
-                break;
-            case 'item-sold':
-                alert('This item has been sold.');
+                this.openChat();       // Ouverture de la discussion
                 break;
             default:
-                console.log('Unknown action:', action);
+                break
         }
     }
 
-    handleShareButtonClick() {
-        const shareBtn = document.getElementById('shareArticleBtn');
-        const action = shareBtn?.dataset.action;
-
-        if (action === 'toggle-sold') {
-            this.toggleSoldStatus();
-        } else {
-            this.showShareModal();
-        }
-    }
-
+    // Suppression d'article par le propriétaire
+    // Similaire à la suppression admin
     async deleteArticle() {
         const title = this.article.book_info?.title || 
                      this.article.dvd_info?.title || 
                      this.article.cd_info?.author || 
                      this.article.item_info?.title || 
                      this.article.item_info?.author || 
-                     'this article';
+                     'cet article';
                      
-        if (!confirm(`Are you sure you want to delete "${title}"?\n\nThis action cannot be undone and will also delete all related chat messages.`)) {
+        if (!confirm(`Êtes-vous sûr de vouloir supprimer "${title}" ?\n\nCette action ne peut pas être annulée et supprimera également tous les messages de discussion associés.`)) {
             return;
         }
 
         try {
-            console.log(`Attempting to delete article ${this.articleId}`);
             
             const response = await fetch(`http://localhost:8000/api/articles/${this.articleId}`, {
                 method: 'DELETE',
@@ -545,98 +351,65 @@ class ArticleDetailsApp {
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                throw new Error(errorData.error || `Erreur HTTP! statut: ${response.status}`);
             }
 
-            console.log('Article deleted successfully');
-            alert('Article deleted successfully!');
+            alert('Article supprimé avec succès !');
             
-            // Redirect to marketplace instead of my-articles
             window.location.href = 'marketplace.html';
 
         } catch (error) {
-            console.error('Error deleting article:', error);
-            alert(`Failed to delete article: ${error.message}`);
+            console.error('Erreur lors de la suppression de l\'article:', error);
+            alert(`Échec de la suppression de l'article : ${error.message}`);
         }
     }
 
-    async toggleSoldStatus() {
-        try {
-            const response = await fetch(`http://localhost:8000/api/articles/${this.articleId}/sold`, {
-                method: 'PATCH',
-                credentials: 'include',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-            this.article.is_sold = data.article.is_sold;
-            
-            // Refresh the display
-            this.displayArticleDetails();
-            
-            const status = data.article.is_sold ? 'sold' : 'available';
-            alert(`Article marked as ${status}!`);
-
-        } catch (error) {
-            console.error('Error updating article status:', error);
-            alert('Failed to update article status. Please try again.');
-        }
-    }
-
+    // Effectue les vérifications nécessaires avant de rediriger vers la page de chat
+    // Vérifie l'authentification, le statut de vente et empêche d'ouvrir un chat avec soi-même
     openChat() {
         if (!this.currentUserId) {
-            alert('Please log in to contact the seller.');
-            return;
-        }
-
-        if (this.article.is_sold) {
-            alert('This item has been sold.');
+            alert('Veuillez vous connecter pour contacter le vendeur.');
             return;
         }
 
         if (this.article.user_id === this.currentUserId) {
-            alert('You cannot chat with yourself about your own item.');
+            alert('Vous ne pouvez pas discuter avec vous-même à propos de votre propre article.');
             return;
         }
 
-        // Navigate to chat page
+        // Construit l'URL avec les paramètres nécessaires pour initialiser la conversation
         const chatUrl = `chat.html?user=${encodeURIComponent(this.article.seller_username)}&articleId=${this.articleId}`;
         window.location.href = chatUrl;
     }
 
+    // Génère une grille de détails selon le type d'article (livre, DVD, CD)
     displayArticleDetailsGrid(itemInfo) {
         const detailsContent = document.getElementById('articleDetailsContent');
         if (!detailsContent || !itemInfo) return;
 
         const details = [];
 
+        // Le genre est commun à tous les types d'articles
         if (itemInfo.genre) {
             details.push(['Genre', itemInfo.genre.charAt(0).toUpperCase() + itemInfo.genre.slice(1)]);
         }
-        if (itemInfo.publication_date) {
-            details.push(['Publication Date', this.formatDate(itemInfo.publication_date)]);
-        }
 
+        // Adapte les champs affichés selon le type d'article
         switch (this.article.item_type) {
             case 'book':
-                if (itemInfo.author) details.push(['Author', itemInfo.author]);
-                if (itemInfo.title) details.push(['Title', itemInfo.title]);
+                if (itemInfo.author) details.push(['Auteur', itemInfo.author]);
+                if (itemInfo.title) details.push(['Titre', itemInfo.title]);
                 break;
             case 'dvd':
-                if (itemInfo.director) details.push(['Director', itemInfo.director]);
-                if (itemInfo.title) details.push(['Title', itemInfo.title]);
+                if (itemInfo.director) details.push(['Réalisateur', itemInfo.director]);
+                if (itemInfo.title) details.push(['Titre', itemInfo.title]);
                 break;
             case 'cd':
-                if (itemInfo.author) details.push(['Artist', itemInfo.author]);
+                if (itemInfo.author) details.push(['Artiste', itemInfo.author]);
                 break;
         }
 
+        // Génère le HTML pour chaque paire label-valeur
         detailsContent.innerHTML = details.map(([label, value]) => `
             <div class="detail-item">
                 <span class="detail-label">${label}:</span>
@@ -645,149 +418,49 @@ class ArticleDetailsApp {
         `).join('');
     }
 
+    // Affiche le nom du vendeur
     displaySellerInfo() {
         const sellerUsername = document.getElementById('sellerUsername');
-        const sellerInitial = document.getElementById('sellerInitial');
-        const sellerJoinDate = document.getElementById('sellerJoinDate');
 
         if (sellerUsername) {
             sellerUsername.textContent = this.article.seller_username;
         }
-        if (sellerInitial) {
-            sellerInitial.textContent = this.article.seller_username.charAt(0).toUpperCase();
-        }
-        if (sellerJoinDate) {
-            sellerJoinDate.textContent = this.formatDate(this.article.created_at);
-        }
     }
 
-    displayArticleMetadata() {
+    // Affiche la date de créationde l'article
+    displayArticleCreationDate() {
         const articleDate = document.getElementById('articleDate');
-        const articleUpdated = document.getElementById('articleUpdated');
-        const articleIdElement = document.getElementById('articleId');
 
         if (articleDate) {
             articleDate.textContent = this.formatDate(this.article.created_at);
         }
-        if (articleUpdated) {
-            articleUpdated.textContent = this.formatDate(this.article.updated_at);
-        }
-        if (articleIdElement) {
-            articleIdElement.textContent = this.article.id;
-        }
     }
 
+    // Affiche le sous-titre selon le type d'article (Livre, DVD, CD)
     getSubtitle(article, itemInfo) {
         switch (article.item_type) {
             case 'book':
-                return `by ${itemInfo?.author || 'Unknown Author'}`;
+                return `écrit par ${itemInfo?.author || 'Auteur Inconnu'}`;
             case 'dvd':
-                return `directed by ${itemInfo?.director || 'Unknown Director'}`;
+                return `réalisé par ${itemInfo?.director || 'Réalisateur Inconnu'}`;
             case 'cd':
-                return `by ${itemInfo?.author || 'Unknown Artist'}`;
+                return `par ${itemInfo?.author || 'Artiste Inconnu'}`;
             default:
                 return '';
         }
     }
 
-    getItemTypeEmoji(itemType) {
-        switch (itemType) {
-            case 'book': return '📚';
-            case 'dvd': return '🎬';
-            case 'cd': return '💿';
-            default: return '📦';
-        }
-    }
-
-    getDefaultImage(itemType) {
-        switch (itemType) {
-            case 'book':
-                return 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600"><rect width="400" height="600" fill="%23f0f0f0"/><text x="200" y="300" text-anchor="middle" font-family="Arial, sans-serif" font-size="48" fill="%23666">📚</text></svg>';
-            case 'dvd':
-                return 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600"><rect width="400" height="600" fill="%23f0f0f0"/><text x="200" y="300" text-anchor="middle" font-family="Arial, sans-serif" font-size="48" fill="%23666">🎬</text></svg>';
-            case 'cd':
-                return 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600"><rect width="400" height="600" fill="%23f0f0f0"/><text x="200" y="300" text-anchor="middle" font-family="Arial, sans-serif" font-size="48" fill="%23666">💿</text></svg>';
-            default:
-                return 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600"><rect width="400" height="600" fill="%23f0f0f0"/><text x="200" y="300" text-anchor="middle" font-family="Arial, sans-serif" font-size="32" fill="%23666">No Image</text></svg>';
-        }
-    }
-
+    // Convertit une chaîne de date ISO en format de date lisible
     formatDate(dateString) {
         const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', {
+        return date.toLocaleDateString('fr-FR', {
             year: 'numeric',
             month: 'long',
             day: 'numeric'
         });
     }
 
-    showShareModal() {
-        this.showModal('shareModal');
-    }
-
-    showModal(modalId) {
-        const modal = document.getElementById(modalId);
-        if (modal) {
-            modal.style.display = 'flex';
-        }
-    }
-
-    closeModal(modalId) {
-        const modal = document.getElementById(modalId);
-        if (modal) {
-            modal.style.display = 'none';
-        }
-    }
-
-    reportArticle() {
-        alert('Report functionality coming soon!\nThis will allow you to report inappropriate content.');
-    }
-
-    copyShareUrl() {
-        const shareUrl = document.getElementById('shareUrl');
-        if (shareUrl) {
-            shareUrl.select();
-            shareUrl.setSelectionRange(0, 99999);
-            document.execCommand('copy');
-            
-            const copyBtn = document.getElementById('copyUrlBtn');
-            if (copyBtn) {
-                const originalText = copyBtn.textContent;
-                copyBtn.textContent = 'Copied!';
-                setTimeout(() => {
-                    copyBtn.textContent = originalText;
-                }, 2000);
-            }
-        }
-    }
-
-    shareViaEmail() {
-        if (!this.article) return;
-        
-        const itemInfo = this.article.book_info || this.article.dvd_info || this.article.cd_info || this.article.item_info;
-        const title = itemInfo?.title || itemInfo?.author || 'Untitled';
-        const subject = encodeURIComponent(`Check out this ${this.article.item_type}: ${title}`);
-        const body = encodeURIComponent(`I found this interesting ${this.article.item_type} on the marketplace:\n\n${title}\nPrice: $${this.article.price.toFixed(2)}\n\n${window.location.href}`);
-        
-        window.open(`mailto:?subject=${subject}&body=${body}`);
-    }
-
-    shareViaTwitter() {
-        if (!this.article) return;
-        
-        const itemInfo = this.article.book_info || this.article.dvd_info || this.article.cd_info || this.article.item_info;
-        const title = itemInfo?.title || itemInfo?.author || 'Untitled';
-        const text = encodeURIComponent(`Check out this ${this.article.item_type}: ${title} for $${this.article.price.toFixed(2)}`);
-        const url = encodeURIComponent(window.location.href);
-        
-        window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank');
-    }
-
-    shareViaFacebook() {
-        const url = encodeURIComponent(window.location.href);
-        window.open(`https://www.facebook.com/sharer/sharer.php?u=${url}`, '_blank');
-    }
-
+    // Contrôle l'affichage des chargements
     showLoading() {
         const loadingContainer = document.getElementById('loadingContainer');
         if (loadingContainer) {
@@ -802,6 +475,7 @@ class ArticleDetailsApp {
         }
     }
 
+    // Contrôle l'affichage des messages d'erreur
     showError(message) {
         const errorContainer = document.getElementById('errorContainer');
         const errorText = document.getElementById('errorText');
@@ -818,6 +492,7 @@ class ArticleDetailsApp {
         }
     }
 
+    // Contrôle l'affichage de la section principale
     showArticleDetails() {
         const articleSection = document.getElementById('articleDetailsSection');
         if (articleSection) {
@@ -833,7 +508,6 @@ class ArticleDetailsApp {
     }
 }
 
-// Initialize the application when the DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     new ArticleDetailsApp();
 });

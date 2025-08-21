@@ -1,5 +1,3 @@
-// marketplace.js - Complete clean version without pictures
-
 class MarketplaceApp {
     constructor() {
         this.currentFilter = '';
@@ -21,8 +19,9 @@ class MarketplaceApp {
         this.loadArticles();
     }
 
+    // Configure tous les écouteurs d'événements
     setupEventListeners() {
-        // Search functionality
+        // Fonctionnalité de recherche
         const searchInput = document.getElementById('searchInput');
         const searchBtn = document.getElementById('searchBtn');
         if (searchInput && searchBtn) {
@@ -33,7 +32,7 @@ class MarketplaceApp {
             searchBtn.addEventListener('click', () => this.filterAndDisplayArticles());
         }
 
-        // Filter controls
+        // Contrôles de filtre
         const genreFilter = document.getElementById('genreFilter');
         const sortBy = document.getElementById('sortBy');
         if (genreFilter) {
@@ -49,7 +48,7 @@ class MarketplaceApp {
             });
         }
 
-        // Clear filters
+        // Effacer les filtres
         const clearFiltersBtn = document.getElementById('clearFiltersBtn');
         const clearSearchBtn = document.getElementById('clearSearchBtn');
         if (clearFiltersBtn) {
@@ -59,7 +58,7 @@ class MarketplaceApp {
             clearSearchBtn.addEventListener('click', () => this.clearSearch());
         }
 
-        // View toggle
+        // Basculement de vue
         const gridViewBtn = document.getElementById('gridViewBtn');
         const listViewBtn = document.getElementById('listViewBtn');
         if (gridViewBtn) {
@@ -69,7 +68,7 @@ class MarketplaceApp {
             listViewBtn.addEventListener('click', () => this.setView('list'));
         }
 
-        // Add item button
+        // Bouton d'ajout d'article
         const addItemBtn = document.getElementById('addItemBtn');
         if (addItemBtn) {
             addItemBtn.addEventListener('click', () => {
@@ -77,7 +76,7 @@ class MarketplaceApp {
             });
         }
 
-        // Modal controls
+        // Contrôles de modal
         const modalOverlay = document.getElementById('modalOverlay');
         const closeModal = document.getElementById('closeModal');
         const closeModalBtn = document.getElementById('closeModalBtn');
@@ -93,13 +92,14 @@ class MarketplaceApp {
             closeModalBtn.addEventListener('click', () => this.closeModal());
         }
 
-        // Retry button
+        // Bouton de réessai
         const retryBtn = document.getElementById('retryBtn');
         if (retryBtn) {
             retryBtn.addEventListener('click', () => this.loadArticles());
         }
     }
 
+    // Configure la navigation par type d'article avec gestion de l'URL
     setupItemTypeNavigation() {
         const navButtons = document.querySelectorAll('.nav-btn');
         navButtons.forEach(btn => {
@@ -110,22 +110,24 @@ class MarketplaceApp {
                 const type = urlParams.get('type');
                 this.setItemType(type || 'all');
                 
-                // Update URL without reloading page
+                // Met à jour l'URL sans recharger la page
                 window.history.pushState({}, '', href);
             });
         });
     }
 
+    // Vérifie le type d'article actuel depuis l'URL
     checkCurrentItemType() {
         const urlParams = new URLSearchParams(window.location.search);
         const type = urlParams.get('type') || 'all';
         this.setItemType(type);
     }
 
+    // Change le type d'article affiché et met à jour l'interface
     setItemType(type) {
         this.currentItemType = type;
         
-        // Update active navigation
+        // Met à jour la navigation active
         const navButtons = document.querySelectorAll('.nav-btn');
         navButtons.forEach(btn => {
             const href = btn.getAttribute('href');
@@ -138,32 +140,33 @@ class MarketplaceApp {
             }
         });
 
-        // Update page title
+        // Met à jour le titre de la page
         const pageTitle = document.getElementById('pageTitle');
         const sectionTitle = document.getElementById('sectionTitle');
         if (pageTitle && sectionTitle) {
             switch(type) {
                 case 'books':
-                    pageTitle.textContent = '📚 Books Marketplace';
-                    sectionTitle.textContent = 'Available Books';
+                    pageTitle.textContent = 'Livres Marketplace';
+                    sectionTitle.textContent = 'Livres disponibles';
                     break;
                 case 'dvds':
-                    pageTitle.textContent = '🎬 DVDs Marketplace';
-                    sectionTitle.textContent = 'Available DVDs';
+                    pageTitle.textContent = 'DVDs Marketplace';
+                    sectionTitle.textContent = 'DVDs disponibles';
                     break;
                 case 'cds':
-                    pageTitle.textContent = '💿 CDs Marketplace';
-                    sectionTitle.textContent = 'Available CDs';
+                    pageTitle.textContent = 'CDs Marketplace';
+                    sectionTitle.textContent = 'CDs disponibles';
                     break;
                 default:
-                    pageTitle.textContent = '📚 Marketplace';
-                    sectionTitle.textContent = 'Available Items';
+                    pageTitle.textContent = 'Marketplace';
+                    sectionTitle.textContent = 'Items disponibles';
             }
         }
 
         this.loadArticles();
     }
 
+    // Charge les articles depuis l'API en fonction du type sélectionné
     async loadArticles() {
         this.showLoading();
         this.hideError();
@@ -183,8 +186,6 @@ class MarketplaceApp {
                 }
             }
 
-            console.log('Fetching from endpoint:', `${this.API_BASE_URL}${endpoint}`);
-
             const response = await fetch(`${this.API_BASE_URL}${endpoint}`, {
                 credentials: 'include',
                 headers: {
@@ -197,10 +198,8 @@ class MarketplaceApp {
             }
 
             const data = await response.json();
-            console.log('API Response:', data);
             
             this.articles = data.articles || [];
-            console.log('Loaded articles:', this.articles);
             
             this.extractGenres();
             this.populateGenreFilter();
@@ -214,6 +213,7 @@ class MarketplaceApp {
         }
     }
 
+    // Extrait tous les genres uniques des articles chargés
     extractGenres() {
         const genresSet = new Set();
         this.articles.forEach(article => {
@@ -234,9 +234,9 @@ class MarketplaceApp {
             }
         });
         this.genres = Array.from(genresSet).sort();
-        console.log('Extracted genres:', this.genres);
     }
 
+    // Remplit le sélecteur de filtre de genre
     populateGenreFilter() {
         const genreFilter = document.getElementById('genreFilter');
         if (!genreFilter) return;
@@ -250,11 +250,11 @@ class MarketplaceApp {
         });
     }
 
+    // Applique les filtres de recherche et de genre, puis affiche les résultats
     filterAndDisplayArticles() {
         let filteredArticles = [...this.articles];
-        console.log('Starting with articles:', filteredArticles.length);
 
-        // Apply search filter
+        // Applique le filtre de recherche
         if (this.searchTerm) {
             filteredArticles = filteredArticles.filter(article => {
                 const searchTermLower = this.searchTerm.toLowerCase();
@@ -286,10 +286,9 @@ class MarketplaceApp {
                        description.toLowerCase().includes(searchTermLower) ||
                        seller.toLowerCase().includes(searchTermLower);
             });
-            console.log('After search filter:', filteredArticles.length);
         }
 
-        // Apply genre filter
+        // Applique le filtre de genre
         if (this.currentFilter) {
             filteredArticles = filteredArticles.filter(article => {
                 let genre = null;
@@ -306,23 +305,19 @@ class MarketplaceApp {
                 
                 return genre === this.currentFilter;
             });
-            console.log('After genre filter:', filteredArticles.length);
         }
 
-        // Apply sorting
         this.sortArticles(filteredArticles);
 
-        // Display results
         if (filteredArticles.length === 0) {
-            console.log('No results to show');
             this.showNoResults();
         } else {
-            console.log('Displaying', filteredArticles.length, 'articles');
             this.hideNoResults();
             this.displayArticles(filteredArticles);
         }
     }
 
+    // Trie les articles selon le critère sélectionné
     sortArticles(articles) {
         articles.sort((a, b) => {
             switch (this.currentSort) {
@@ -344,6 +339,7 @@ class MarketplaceApp {
         });
     }
 
+    // Extrait le titre d'un article selon son type
     getItemTitle(article) {
         if (article.book_info && article.book_info.title) {
             return article.book_info.title;
@@ -357,6 +353,7 @@ class MarketplaceApp {
         return 'Untitled';
     }
 
+    // Affiche les articles dans la grille ou liste
     displayArticles(articles) {
         const articlesGrid = document.getElementById('articlesGrid');
         if (!articlesGrid) return;
@@ -370,54 +367,41 @@ class MarketplaceApp {
         });
     }
 
+    // Crée l'élément DOM pour un article avec ses informations et boutons
     createArticleElement(article) {
         let title = 'Untitled';
         let subtitle = '';
         
         if (article.book_info) {
             title = article.book_info.title || 'Untitled';
-            subtitle = `by ${article.book_info.author || 'Unknown Author'}`;
+            subtitle = `écrit par ${article.book_info.author || 'Unknown Author'}`;
         } else if (article.dvd_info) {
             title = article.dvd_info.title || 'Untitled';
-            subtitle = `directed by ${article.dvd_info.director || 'Unknown Director'}`;
+            subtitle = `réalisé par ${article.dvd_info.director || 'Unknown Director'}`;
         } else if (article.cd_info) {
             title = article.cd_info.author || 'Unknown Artist';
-            subtitle = 'CD Album';
-        } else if (article.item_info) {
-            title = article.item_info.title || article.item_info.author || 'Untitled';
-            if (article.item_type === 'book') {
-                subtitle = `by ${article.item_info.author || 'Unknown Author'}`;
-            } else if (article.item_type === 'dvd') {
-                subtitle = `directed by ${article.item_info.director || 'Unknown Director'}`;
-            } else if (article.item_type === 'cd') {
-                subtitle = 'CD Album';
-            }
-        }
+        } 
         
         const articleDiv = document.createElement('div');
         articleDiv.className = 'article-card';
         articleDiv.innerHTML = `
-            <div class="article-image">
-                <div class="item-type-icon">${this.getItemTypeEmoji(article.item_type)}</div>
-                ${article.is_sold ? '<div class="sold-badge">SOLD</div>' : ''}
-            </div>
             <div class="article-content">
                 <h3 class="article-title clickable-title" data-article-id="${article.id}">${title}</h3>
                 <p class="article-subtitle">${subtitle}</p>
                 <p class="article-description">${article.description || 'No description available'}</p>
                 <div class="article-meta">
-                    <span class="article-price">$${parseFloat(article.price).toFixed(2)}</span>
-                    <span class="article-seller">by ${article.seller_username}</span>
+                    <span class="article-price">${parseFloat(article.price).toFixed(2)} €</span>
+                    <span class="article-seller">Vendeur : ${article.seller_username}</span>
                     <span class="article-date">${this.formatDate(article.created_at)}</span>
                 </div>
                 <div class="article-actions">
-                    <button class="btn-primary view-details" data-article-id="${article.id}">View Details</button>
-                    ${!article.is_sold ? '<button class="btn-secondary contact-seller" data-seller="' + article.seller_username + '" data-article-id="' + article.id + '">Contact Seller</button>' : ''}
+                    <button class="btn-primary view-details" data-article-id="${article.id}">Détails de l'article</button>
+                    ${!article.is_sold ? '<button class="btn-secondary contact-seller" data-seller="' + article.seller_username + '" data-article-id="' + article.id + '">Contacter le vendeur</button>' : ''}
                 </div>
             </div>
         `;
 
-        // Add click event listeners
+        // Ajout des écouteurs d'événements sur les éléments interactifs
         const titleElement = articleDiv.querySelector('.clickable-title');
         const viewDetailsBtn = articleDiv.querySelector('.view-details');
         const contactSellerBtn = articleDiv.querySelector('.contact-seller');
@@ -445,15 +429,6 @@ class MarketplaceApp {
         window.location.href = `article.html?id=${articleId}`;
     }
 
-    getItemTypeEmoji(itemType) {
-        switch (itemType) {
-            case 'book': return '📚';
-            case 'dvd': return '🎬';
-            case 'cd': return '💿';
-            default: return '📦';
-        }
-    }
-
     formatDate(dateString) {
         const date = new Date(dateString);
         return date.toLocaleDateString('en-US', {
@@ -463,6 +438,7 @@ class MarketplaceApp {
         });
     }
 
+    // Redirige vers la page de chat avec le vendeur
     contactSeller(sellerUsername, articleId) {
         if (sellerUsername && articleId) {
             window.location.href = `chat.html?user=${encodeURIComponent(sellerUsername)}&articleId=${articleId}`;
@@ -471,7 +447,7 @@ class MarketplaceApp {
         }
     }
 
-    // View and filter controls
+    // Change la vue entre grille et liste
     setView(view) {
         this.currentView = view;
         const gridBtn = document.getElementById('gridViewBtn');
@@ -485,6 +461,7 @@ class MarketplaceApp {
         this.filterAndDisplayArticles();
     }
 
+    // Remet à zéro tous les filtres
     clearFilters() {
         this.currentFilter = '';
         this.currentSort = 'newest';
@@ -495,6 +472,7 @@ class MarketplaceApp {
         this.filterAndDisplayArticles();
     }
 
+    // Efface le terme de recherche
     clearSearch() {
         this.searchTerm = '';
         const searchInput = document.getElementById('searchInput');
@@ -502,7 +480,7 @@ class MarketplaceApp {
         this.filterAndDisplayArticles();
     }
 
-    // Modal and UI state management
+    // Méthodes de gestion des états d'interface
     showModal(title, content) {
         const modal = document.getElementById('modalOverlay');
         const modalTitle = document.getElementById('modalTitle');
@@ -567,7 +545,7 @@ class MarketplaceApp {
     }
 }
 
-// Add CSS for the new item type icon display
+// CSS pour l'affichage des icônes de type d'article
 const style = document.createElement('style');
 style.textContent = `
     .article-image {
@@ -599,7 +577,7 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-// Initialize the application when the DOM is loaded
+// Initialise l'application au chargement du DOM
 document.addEventListener('DOMContentLoaded', () => {
     new MarketplaceApp();
 });

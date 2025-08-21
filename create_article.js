@@ -1,7 +1,7 @@
 let selectedItemType = null;
-let createdItemId = null;
+let createdItemId = null; 
 
-// DOM elements
+// Références DOM des sections principales
 const itemCreationSection = document.getElementById('itemCreationSection');
 const articleCreationSection = document.getElementById('articleCreationSection');
 const itemPreview = document.getElementById('itemPreview');
@@ -9,31 +9,32 @@ const loadingOverlay = document.getElementById('loadingOverlay');
 const successMessage = document.getElementById('successMessage');
 const errorMessage = document.getElementById('errorMessage');
 
-// Type selection buttons
+// Boutons de sélection de type d'article
 const bookTypeBtn = document.getElementById('bookTypeBtn');
 const dvdTypeBtn = document.getElementById('dvdTypeBtn');
 const cdTypeBtn = document.getElementById('cdTypeBtn');
 
-// Forms
+// Formulaires de création
 const itemForm = document.getElementById('itemForm');
 const articleForm = document.getElementById('articleForm');
 
-// Initialize event listeners
+// Démarrage de l'application
 document.addEventListener('DOMContentLoaded', function() {
     setupEventListeners();
 });
 
+// Configure tous les écouteurs d'événements de l'interface
 function setupEventListeners() {
-    // Type selection buttons
+    // Gestion des clics sur les boutons de type d'article
     bookTypeBtn.addEventListener('click', () => selectItemType('book'));
     dvdTypeBtn.addEventListener('click', () => selectItemType('dvd'));
     cdTypeBtn.addEventListener('click', () => selectItemType('cd'));
 
-    // Form submissions
+    // Interception des soumissions de formulaires
     itemForm.addEventListener('submit', handleItemSubmit);
     articleForm.addEventListener('submit', handleArticleSubmit);
 
-    // Cancel buttons
+    // Boutons d'annulation
     document.getElementById('cancelItemBtn').addEventListener('click', () => {
         itemCreationSection.style.display = 'none';
         resetItemForm();
@@ -44,18 +45,19 @@ function setupEventListeners() {
         itemCreationSection.style.display = 'block';
     });
 
-    // Header buttons
+    // Navigation
     document.getElementById('backBtn').addEventListener('click', () => {
         window.location.href = 'profile.html';
     });
 
+    // Déconnexion avec confirmation
     document.getElementById('logoutBtn').addEventListener('click', () => {
         if (confirm('Are you sure you want to logout?')) {
             logout();
         }
     });
 
-    // Success/Error message buttons
+    // Actions après création réussie
     document.getElementById('createAnotherBtn').addEventListener('click', () => {
         successMessage.style.display = 'none';
         resetAllForms();
@@ -65,6 +67,7 @@ function setupEventListeners() {
         window.location.href = 'profile.html';
     });
 
+    // Gestion des messages d'erreur
     document.getElementById('retryBtn').addEventListener('click', () => {
         errorMessage.style.display = 'none';
     });
@@ -74,29 +77,26 @@ function setupEventListeners() {
     });
 }
 
+// Sélectionne le type d'article et génère le formulaire correspondant
 function selectItemType(type) {
     selectedItemType = type;
     
-    // Update button states
+    // Mise à jour visuelle des boutons
     document.querySelectorAll('.type-btn').forEach(btn => btn.classList.remove('active'));
     document.getElementById(`${type}TypeBtn`).classList.add('active');
     
-    // Show item creation section
     itemCreationSection.style.display = 'block';
-    
-    // Create and show only the selected form
     createFormForType(type);
 }
 
+// Génère dynamiquement le formulaire selon le type d'article
 function createFormForType(type) {
-    // Clear existing form content
     const formContainer = itemForm.querySelector('.form-container') || itemForm;
     
-    // Remove any existing item forms
+    // Supprime les formulaires précédents
     const existingForms = formContainer.querySelectorAll('.item-form');
     existingForms.forEach(form => form.remove());
     
-    // Create the appropriate form based on type
     let formHtml = '';
     
     if (type === 'book') {
@@ -110,10 +110,6 @@ function createFormForType(type) {
                 <div class="form-group">
                     <label for="bookAuthor">Author *</label>
                     <input type="text" id="bookAuthor" name="author" required>
-                </div>
-                <div class="form-group">
-                    <label for="bookPublicationDate">Publication Date</label>
-                    <input type="date" id="bookPublicationDate" name="publication_date">
                 </div>
                 <div class="form-group">
                     <label for="bookGenre">Genre</label>
@@ -134,10 +130,6 @@ function createFormForType(type) {
                     <input type="text" id="dvdDirector" name="director" required>
                 </div>
                 <div class="form-group">
-                    <label for="dvdPublicationDate">Release Date</label>
-                    <input type="date" id="dvdPublicationDate" name="publication_date">
-                </div>
-                <div class="form-group">
                     <label for="dvdGenre">Genre</label>
                     <input type="text" id="dvdGenre" name="genre" placeholder="e.g., Action, Comedy, Drama">
                 </div>
@@ -152,10 +144,6 @@ function createFormForType(type) {
                     <input type="text" id="cdAuthor" name="author" required>
                 </div>
                 <div class="form-group">
-                    <label for="cdPublicationDate">Release Date</label>
-                    <input type="date" id="cdPublicationDate" name="publication_date">
-                </div>
-                <div class="form-group">
                     <label for="cdGenre">Genre</label>
                     <input type="text" id="cdGenre" name="genre" placeholder="e.g., Rock, Pop, Jazz">
                 </div>
@@ -163,7 +151,7 @@ function createFormForType(type) {
         `;
     }
     
-    // Insert the form HTML before the form actions
+    // Insertion du formulaire avant les boutons d'action
     const formActions = itemForm.querySelector('.form-actions');
     if (formActions) {
         formActions.insertAdjacentHTML('beforebegin', formHtml);
@@ -172,16 +160,16 @@ function createFormForType(type) {
     }
 }
 
+// Traite la soumission du formulaire d'article via requête API
 async function handleItemSubmit(e) {
     e.preventDefault();
-    
     showLoading('Creating item...');
     
     try {
         const formData = new FormData(e.target);
         const itemData = Object.fromEntries(formData);
         
-        // Remove empty fields
+        // Supprime les champs vides
         Object.keys(itemData).forEach(key => {
             if (!itemData[key]) {
                 delete itemData[key];
@@ -204,8 +192,6 @@ async function handleItemSubmit(e) {
         
         const result = await response.json();
         createdItemId = result[selectedItemType].id;
-        
-        // Show article creation section
         showArticleCreation(result[selectedItemType]);
         
     } catch (error) {
@@ -216,14 +202,11 @@ async function handleItemSubmit(e) {
     }
 }
 
+// Affiche la section création d'annonce avec résumé de l'article créé
 function showArticleCreation(itemData) {
-    // Hide item creation section
     itemCreationSection.style.display = 'none';
-    
-    // Show article creation section
     articleCreationSection.style.display = 'block';
     
-    // Update item preview
     let previewHtml = `<h4>Item Created Successfully!</h4>`;
     
     if (selectedItemType === 'book') {
@@ -251,9 +234,9 @@ function showArticleCreation(itemData) {
     itemPreview.innerHTML = previewHtml;
 }
 
+// Traite la soumission du formulaire d'annonce avec validation
 async function handleArticleSubmit(e) {
     e.preventDefault();
-    
     showLoading('Creating article...');
     
     try {
@@ -264,9 +247,7 @@ async function handleArticleSubmit(e) {
             price: parseFloat(document.getElementById('articlePrice').value)
         };
         
-        console.log('📝 Creating article:', articleData);
-        
-        // Validation
+        // Validation côté client
         if (!articleData.item_type || !articleData.item_id || !articleData.price) {
             throw new Error("Item type, item ID, and price are required");
         }
@@ -284,20 +265,16 @@ async function handleArticleSubmit(e) {
             body: JSON.stringify(articleData)
         });
         
-        console.log('📡 Response status:', response.status);
-        console.log('📡 Response headers:', Object.fromEntries(response.headers.entries()));
-        
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-            console.error('❌ Server error response:', errorData);
+            console.error('Server error response:', errorData);
             throw new Error(errorData.error || `Server error: ${response.status}`);
         }
         
         const result = await response.json();
-        console.log('✅ Success response:', result);
         showSuccess('Article created successfully!');
         
-        // Set up the "View Article" button
+        // Configure le bouton de visualisation de l'annonce
         const viewArticleBtn = document.getElementById('viewArticleBtn');
         if (viewArticleBtn && result.article) {
             viewArticleBtn.onclick = () => {
@@ -306,12 +283,13 @@ async function handleArticleSubmit(e) {
         }
         
     } catch (error) {
-        console.error('❌ Article creation error:', error);
+        console.error('Article creation error:', error);
         showError(error.message || 'Failed to create article. Please try again.');
     } finally {
         hideLoading();
     }
 }
+
 function showLoading(text = 'Loading...') {
     document.getElementById('loadingText').textContent = text;
     loadingOverlay.style.display = 'flex';
@@ -331,17 +309,18 @@ function showError(text) {
     errorMessage.style.display = 'flex';
 }
 
+// Remet à zéro le formulaire d'article et supprime les formulaires dynamiques
 function resetItemForm() {
     itemForm.reset();
     selectedItemType = null;
     createdItemId = null;
     document.querySelectorAll('.type-btn').forEach(btn => btn.classList.remove('active'));
     
-    // Remove any dynamically created forms
     const existingForms = itemForm.querySelectorAll('.item-form');
     existingForms.forEach(form => form.remove());
 }
 
+// Remet à zéro tous les formulaires et masque les sections
 function resetAllForms() {
     resetItemForm();
     articleForm.reset();
@@ -349,6 +328,7 @@ function resetAllForms() {
     articleCreationSection.style.display = 'none';
 }
 
+// Déconnecte l'utilisateur via API et redirige vers login
 async function logout() {
     try {
         await fetch('http://localhost:8000/api/auth/logout', {

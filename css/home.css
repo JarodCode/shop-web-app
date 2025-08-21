@@ -1,0 +1,67 @@
+.home-container {
+    min-height: 100vh;
+    background: linear-gradient(180deg, #a86dcf 0%, #2a053f 125%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+}
+
+.welcome-section {
+    text-align: center;
+    color: white;
+}
+
+.welcome-content h1 {
+    font-size: 3rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+    color: white;
+}
+
+.welcome-content p {
+    font-size: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.auth-buttons {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.btn {
+    padding: 1rem 2rem;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 0.5rem;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    min-width: 120px;
+    text-align: center;
+}
+
+.btn-primary {
+    background: white;
+    color: #521b72;
+}
+
+.btn-primary:hover {
+    background: #f8fafc;
+    transform: translateY(-2px);
+    color: #a86dcf;
+}
+
+.btn-secondary {
+    background: transparent;
+    color: white;
+    border: 2px solid white;
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.1);
+    transform: translateY(-2px);
+    color: rgb(255, 255, 255);
+    text-decoration: none;
+}

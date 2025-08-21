@@ -1,0 +1,138 @@
+.register-container {
+    min-height: 100vh;
+    background: linear-gradient(180deg, #a86dcf 0%, #2a053f 125%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+}
+
+.register-content {
+    background: white;
+    padding: 2.5rem;
+    border-radius: 1rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.377);
+    width: 100%;
+    max-width: 400px;
+    text-align: center;
+    position: relative;
+}
+
+.back-link {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    color: #6b7280;
+    text-decoration: none;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.back-link:hover {
+    color: #374151;
+    text-decoration: underline;
+}
+
+.register-content h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #1f2937;
+    margin-bottom: 0.5rem;
+}
+
+.register-content p {
+    color: #6b7280;
+    margin-bottom: 2rem;
+    font-size: 0.875rem;
+}
+
+.form-group {
+    margin-bottom: 1.5rem;
+    text-align: left;
+}
+
+.form-group input {
+    width: 100%;
+    padding: 1rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 0.5rem;
+    font-size: 1rem;
+    transition: all 0.2s ease;
+    background: #f9fafb;
+    box-sizing: border-box;
+}
+
+.form-group input:focus {
+    outline: none;
+    border-color: #a86dcf;
+    background: white;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.form-group input::placeholder {
+    color: #9ca3af;
+}
+
+.register-btn {
+    width: 100%;
+    padding: 1rem;
+    background: #a86dcf;
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    margin-bottom: 1.5rem;
+}
+
+.register-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+}
+
+.register-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.login-link {
+    color: #6b7280;
+    font-size: 0.875rem;
+    margin: 0;
+}
+
+.login-link a {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.login-link a:hover {
+    color: #4f46e5;
+    text-decoration: underline;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .register-container {
+        padding: 1rem;
+    }
+    
+    .register-content {
+        padding: 2rem;
+        margin: 1rem;
+    }
+    
+    .back-link {
+        position: static;
+        display: block;
+        text-align: left;
+        margin-bottom: 1rem;
+    }
+    
+    .register-content h1 {
+        font-size: 1.5rem;
+    }
+}

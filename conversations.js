@@ -1,19 +1,18 @@
-// conversations.js - Updated to show all conversations with users
-
 class ConversationsApp {
     constructor() {
         this.currentUserId = null;
         this.currentUsername = null;
+        // Tableau représentant toutes les conversations
         this.conversations = [];
         
         this.init();
     }
-
     init() {
         this.setupEventListeners();
         this.getCurrentUser();
     }
 
+    //Configure tous les écouteurs d'événements pour l'interface utilisateur.
     setupEventListeners() {
         const backButton = document.getElementById('backButton');
         const retryBtn = document.getElementById('retryBtn');
@@ -22,6 +21,8 @@ class ConversationsApp {
         retryBtn.addEventListener('click', () => this.loadConversations());
     }
 
+    // Vérifie l'authentification de l'utilisateur et récupère ses informations
+    // Nécessaire pour déterminer la propriété des messages et s'authentifier au WebSocket
     async getCurrentUser() {
         try {
             const response = await fetch('http://localhost:8000/test_cookie', {
@@ -35,6 +36,7 @@ class ConversationsApp {
                 
                 await this.loadConversations();
             } else {
+                // Protection contre l'accès non autorisé - redirection forcée vers l'authentification
                 alert('You must be logged in to view conversations');
                 window.location.href = 'login.html';
             }
@@ -44,62 +46,35 @@ class ConversationsApp {
         }
     }
 
+    // Charge toutes les conversations en déterminant le rôle de l'utilisateurs dans chacun des cas
     async loadConversations() {
         try {
             this.showLoading();
             
-            // Get all messages involving the current user
-            const response = await fetch(`http://localhost:8000/api/users/${this.currentUserId}/conversations`, {
-                credentials: 'include'
-            });
-            
-            if (!response.ok) {
-                // If endpoint doesn't exist, fall back to the old method
-                await this.loadConversationsOldMethod();
-                return;
-            }
-            
-            const data = await response.json();
-            this.conversations = data.conversations || [];
-            
-            // Sort by last message time
-            this.conversations.sort((a, b) => new Date(b.lastMessageTime) - new Date(a.lastMessageTime));
-            
-            this.displayConversations();
-            this.hideLoading();
-            
-        } catch (error) {
-            console.error('Error loading conversations:', error);
-            // Fall back to old method
-            await this.loadConversationsOldMethod();
-        }
-    }
-
-    async loadConversationsOldMethod() {
-        try {
-            // Get all articles
+            // Utilise les articles comme point d'entrée
             const articlesResponse = await fetch('http://localhost:8000/api/articles');
             if (!articlesResponse.ok) throw new Error('Failed to load articles');
             
             const articlesData = await articlesResponse.json();
             const articles = articlesData.articles;
             
-            // Create a map to store conversations by user
+            // Structure de données temporaire pour éviter les doublons et organiser par conversation unique
+            // Clé = "nom_utilisateur_id_article", Valeur = objet conversation complet
             const conversationMap = new Map();
             
-            // Process each article
+            // Parcours exhaustif de tous les articles pour identifier ceux où l'utilisateur a participé
             for (const article of articles) {
                 const messages = await this.getArticleMessages(article.id);
                 if (!messages || messages.length === 0) continue;
                 
-                // Group messages by conversation partner
+                // Analyse de chaque message pour déterminer les relations acheteur/vendeur
                 for (const message of messages) {
                     let otherUser = null;
                     let role = null;
                     
-                    // Determine the other user and role
+                    // Logique de détermination du rôle dans la transaction
                     if (article.user_id === this.currentUserId) {
-                        // Current user is the seller
+                        // Cas 1: L'utilisateur connecté est propriétaire de l'article (vendeur)
                         if (message.user_id !== this.currentUserId) {
                             otherUser = {
                                 id: message.user_id,
@@ -108,7 +83,8 @@ class ConversationsApp {
                             role = 'seller';
                         }
                     } else if (message.user_id === this.currentUserId) {
-                        // Current user sent a message to this article (as buyer)
+                        // Cas 2: L'utilisateur connecté a commenté l'article d'un autre (acheteur)
+                        // L'autre utilisateur est nécessairement le vendeur
                         otherUser = {
                             id: article.user_id,
                             username: article.seller_username
@@ -117,9 +93,12 @@ class ConversationsApp {
                     }
                     
                     if (otherUser) {
+                        // Génération d'une clé unique pour éviter la duplication des conversations
                         const conversationKey = `${otherUser.username}_${article.id}`;
                         
                         if (!conversationMap.has(conversationKey)) {
+                            // Initialisation d'une nouvelle conversation avec métadonnées complètes
+                            // Permet l'affichage riche avec contexte d'article et calculs de messages non lus
                             conversationMap.set(conversationKey, {
                                 otherUser: otherUser,
                                 articleId: article.id,
@@ -131,51 +110,31 @@ class ConversationsApp {
                                 messages: [],
                                 lastMessage: null,
                                 lastMessageTime: null,
-                                unreadCount: 0
                             });
                         }
                         
+                        // Agrégation de tous les messages dans la conversation correspondante
                         const conv = conversationMap.get(conversationKey);
                         conv.messages.push(message);
                     }
                 }
             }
-            
-            // Process conversations to get last message and unread count
+        
+            // Transformation de la Map en Array
             this.conversations = [];
             for (const [key, conv] of conversationMap) {
                 if (conv.messages.length > 0) {
-                    // Sort messages by time
+                    // Tri chronologique nécessaire pour identifier le dernier message
                     conv.messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
                     
-                    // Get last message
+                    // Extraction du message le plus récent 
                     conv.lastMessage = conv.messages[conv.messages.length - 1];
-                    conv.lastMessageTime = conv.lastMessage.timestamp;
-                    
-                    // Count unread messages
-                    let lastUserMessageIndex = -1;
-                    for (let i = conv.messages.length - 1; i >= 0; i--) {
-                        if (conv.messages[i].user_id === this.currentUserId) {
-                            lastUserMessageIndex = i;
-                            break;
-                        }
-                    }
-                    
-                    if (lastUserMessageIndex >= 0) {
-                        for (let i = lastUserMessageIndex + 1; i < conv.messages.length; i++) {
-                            if (conv.messages[i].user_id !== this.currentUserId) {
-                                conv.unreadCount++;
-                            }
-                        }
-                    } else {
-                        conv.unreadCount = conv.messages.filter(m => m.user_id !== this.currentUserId).length;
-                    }
                     
                     this.conversations.push(conv);
                 }
             }
             
-            // Sort by last message time
+            // Tri final par activité récente pour l'expérience utilisateur optimale
             this.conversations.sort((a, b) => new Date(b.lastMessageTime) - new Date(a.lastMessageTime));
             
             this.displayConversations();
@@ -187,6 +146,7 @@ class ConversationsApp {
         }
     }
 
+    // Récupère tous les messages associés à un article spécifique
     async getArticleMessages(articleId) {
         try {
             const response = await fetch(`http://localhost:8000/api/articles/${articleId}/messages`, {
@@ -209,44 +169,39 @@ class ConversationsApp {
         return itemInfo?.title || itemInfo?.author || 'Untitled';
     }
 
+    // Affichage des conversations
     displayConversations() {
         const conversationsList = document.getElementById('conversationsList');
         const emptyConversations = document.getElementById('emptyConversations');
-        const conversationCount = document.getElementById('conversationCount');
         
         if (this.conversations.length === 0) {
             conversationsList.style.display = 'none';
             emptyConversations.style.display = 'block';
-            conversationCount.textContent = '0 conversations';
             return;
         }
-        
+
         conversationsList.style.display = 'block';
         emptyConversations.style.display = 'none';
-        conversationCount.textContent = `${this.conversations.length} conversation${this.conversations.length !== 1 ? 's' : ''}`;
         
         conversationsList.innerHTML = '';
-        
-        // Group conversations by user (combine multiple article conversations with same user)
         const userConversations = new Map();
         
         for (const conv of this.conversations) {
             const userKey = conv.otherUser.username;
             
             if (!userConversations.has(userKey)) {
+                // Initialisation d'un groupe conversation pour cet utilisateur
                 userConversations.set(userKey, {
                     otherUser: conv.otherUser,
                     conversations: [],
                     lastMessage: null,
                     lastMessageTime: null,
-                    totalUnread: 0
                 });
             }
             
             const userConv = userConversations.get(userKey);
             userConv.conversations.push(conv);
             
-            // Update last message if this conversation is more recent
             if (!userConv.lastMessageTime || new Date(conv.lastMessageTime) > new Date(userConv.lastMessageTime)) {
                 userConv.lastMessage = conv.lastMessage;
                 userConv.lastMessageTime = conv.lastMessageTime;
@@ -258,24 +213,23 @@ class ConversationsApp {
                     role: conv.role
                 };
             }
-            
-            userConv.totalUnread += conv.unreadCount;
         }
         
-        // Convert map to array and sort
+        // Tri par activité pour l'ordre d'affichage
         const sortedUserConversations = Array.from(userConversations.values())
             .sort((a, b) => new Date(b.lastMessageTime) - new Date(a.lastMessageTime));
         
-        // Display user conversations
+        // Rendu de chaque élément conversation
         sortedUserConversations.forEach(userConv => {
             const conversationElement = this.createUserConversationElement(userConv);
             conversationsList.appendChild(conversationElement);
         });
     }
 
+    // Génère les éléments html pour l'affichage
     createUserConversationElement(userConv) {
         const element = document.createElement('div');
-        element.className = `conversation-item ${userConv.totalUnread > 0 ? 'unread' : ''}`;
+        element.className = `conversation-item`;
         element.addEventListener('click', () => this.openChatWithUser(userConv));
         
         const lastMessageText = userConv.lastMessage.message.length > 50 
@@ -285,15 +239,7 @@ class ConversationsApp {
         const isLastMessageFromUser = userConv.lastMessage.user_id === this.currentUserId;
         const lastMessagePrefix = isLastMessageFromUser ? 'You: ' : '';
         
-        // Show article count if multiple
-        const articleCount = userConv.conversations.length;
-        const articleInfo = articleCount > 1 
-            ? `${articleCount} items` 
-            : userConv.lastArticle.title;
-            
-        const roleInfo = userConv.conversations.map(c => c.role).includes('seller') 
-            ? 'Selling' 
-            : 'Buying';
+        // Logique d'affichage adaptative selon le nombre d'articles dans la conversation
         
         element.innerHTML = `
             <div class="conversation-avatar">
@@ -304,24 +250,11 @@ class ConversationsApp {
                 <div class="conversation-header">
                     <div class="conversation-title">
                         <span class="participant-name">${userConv.otherUser.username}</span>
-                        <span class="conversation-count">${articleCount > 1 ? `(${articleCount} items)` : ''}</span>
-                    </div>
-                    <div class="conversation-time">
-                        ${this.formatTime(userConv.lastMessageTime)}
-                    </div>
-                </div>
-                
-                <div class="conversation-item-info">
-                    <span class="item-emoji">${this.getItemEmoji(userConv.lastArticle.itemType)}</span>
-                    <div class="item-details">
-                        <div class="item-title">${articleInfo}</div>
-                        ${userConv.lastArticle ? `<div class="item-price">$${userConv.lastArticle.price.toFixed(2)}</div>` : ''}
                     </div>
                 </div>
                 
                 <div class="conversation-preview">
                     <span class="last-message">${lastMessagePrefix}${lastMessageText}</span>
-                    ${userConv.totalUnread > 0 ? `<span class="unread-badge">${userConv.totalUnread}</span>` : ''}
                 </div>
             </div>
         `;
@@ -329,17 +262,13 @@ class ConversationsApp {
         return element;
     }
 
+    // Gère la navigation vers les différents chats
     openChatWithUser(userConv) {
-        // Open chat with the most recent article conversation
-        // Or you could show a list of articles to choose from if multiple
         if (userConv.conversations.length === 1) {
-            // Single article conversation - open directly
             const conv = userConv.conversations[0];
             const chatUrl = `chat.html?user=${encodeURIComponent(userConv.otherUser.username)}&articleId=${conv.articleId}`;
             window.location.href = chatUrl;
         } else {
-            // Multiple articles - open with the most recent one
-            // You could enhance this to show a selection dialog
             const mostRecent = userConv.conversations.reduce((a, b) => 
                 new Date(a.lastMessageTime) > new Date(b.lastMessageTime) ? a : b
             );
@@ -348,15 +277,7 @@ class ConversationsApp {
         }
     }
 
-    getItemEmoji(itemType) {
-        const emojis = {
-            book: '📚',
-            dvd: '🎬',
-            cd: '💿'
-        };
-        return emojis[itemType] || '📦';
-    }
-
+    // Transforme foramt ISO en format de date lisible
     formatTime(timestamp) {
         const date = new Date(timestamp);
         const now = new Date();
@@ -374,17 +295,18 @@ class ConversationsApp {
         }
     }
 
+    // Affichage du chargement
     showLoading() {
         document.getElementById('loadingOverlay').style.display = 'flex';
         document.getElementById('errorMessage').style.display = 'none';
         document.getElementById('conversationsList').style.display = 'none';
         document.getElementById('emptyConversations').style.display = 'none';
     }
-
     hideLoading() {
         document.getElementById('loadingOverlay').style.display = 'none';
     }
 
+    // Affichage erreurs
     showError(message) {
         this.hideLoading();
         document.getElementById('errorText').textContent = message;
@@ -393,12 +315,12 @@ class ConversationsApp {
         document.getElementById('emptyConversations').style.display = 'none';
     }
 
+    // Gère la navigation retour
     goBack() {
         window.location.href = 'profile.html';
     }
 }
 
-// Initialize the conversations app when the DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     new ConversationsApp();
 });

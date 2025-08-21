@@ -3,33 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Register - Authentication System</title>
-    <link rel="stylesheet" href="css/styles.css">     <!-- Base styles -->
-<link rel="stylesheet" href="css/auth.css">
+    <title>Register - Marketplace</title>
+    <link rel="stylesheet" href="css/register.css">
 </head>
 <body>
-    <h1>Register</h1>
-    
-    <!-- Add these message divs -->
-    <div id="error-message" style="display: none; color: red; margin-bottom: 10px;"></div>
-    <div id="success-message" style="display: none; color: green; margin-bottom: 10px;"></div>
-    
-    <form id="registerForm">
-        <div class="form-group">
-            <label for="username">Username:</label>
-            <input type="text" id="username" name="username" required>
+    <div class="register-container">
+        <div class="register-content">
+            <!-- Back button -->
+            <a href="home.html" class="back-link">← Revenir à l'accueil</a>
+            
+            <h1>Créer un compte</h1>
+            <p>Rejoignez notre marketplace</p>
+            
+            <!-- Register form -->
+            <form id="registerForm">
+                <div class="form-group">
+                    <input type="text" id="username" name="username" placeholder="Nom d'utilisateur" required>
+                </div>
+                
+                <div class="form-group">
+                    <input type="password" id="password" name="password" placeholder="Mot de passe" required minlength="6">
+                </div>
+                
+                <button type="submit" class="register-btn">Créer un compte</button>
+            </form>
+            
+            <!-- Login link -->
+            <p class="login-link">
+                Vous avez déjà un compte? <a href="login.html">Se connecter</a>
+            </p>
         </div>
-        <div class="form-group">
-            <label for="password">Password:</label>
-            <input type="password" id="password" name="password" required minlength="6">
-        </div>
-        <button type="submit" id="submitBtn">Register</button>
-    </form>
-    
-    <hr>
-    <p>Already have an account? <a href="login.html">Login here</a></p>
-    <p><a href="home.html">← Back to Home</a></p>
-    
+    </div>
+
     <script src="auth.js"></script>
 </body>
 </html>

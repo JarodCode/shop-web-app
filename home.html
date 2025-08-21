@@ -3,35 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Authentication System - Home</title>
+    <title>Marketplace - Buy & Sell Books, DVDs, CDs</title>
+    <link rel="stylesheet" href="css/home.css">
 </head>
 <body>
-    <h1>Welcome to Authentication System</h1>
-    
-    <p>Please choose an option:</p>
-    
-    <div>
-        <a href="login.html">
-            <button type="button">Login</button>
-        </a>
-        
-        <a href="register.html">
-            <button type="button">Register</button>
-        </a>
+    <div class="home-container">
+        <section class="welcome-section">
+            <div class="welcome-content">
+                <h1>ColectorPlace</h1>
+                <p>Achetez, revendez et agrandissez votre collection</p>
+                
+                <div class="auth-buttons">
+                    <a href="login.html" class="btn btn-primary">Se connecter</a>
+                    <a href="register.html" class="btn btn-secondary">Créer un compte</a>
+                </div>
+            </div>
+        </section>
     </div>
-    
-    <hr>
-    
-    <h2>System Information</h2>
-    <p>This authentication system provides secure user registration and login functionality.</p>
-    <p>Server running on: <strong>http://localhost:8000</strong></p>
-    
-    <h3>Available Features:</h3>
-    <ul>
-        <li>User Registration</li>
-        <li>User Login</li>
-        <li>JWT Token Authentication</li>
-        <li>Protected Routes</li>
-    </ul>
 </body>
 </html>

@@ -1,0 +1,12 @@
+Pour lancer le main :
+    - Ce mettre dans ce dossier
+    - deno run --allow-net --allow-env --allow-read main.ts
+
+Pour lancer le front :
+    - Ce mettre dans ce dossier
+    - deno run --allow-net --allow-env --allow-read server.ts
+
+Pour la data base :
+    - Ce mettre dans ce dossier
+    - mysql -h 127.0.0.1 -P 3306 -u root -p
+    - mdp : mypassword

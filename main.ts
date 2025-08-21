@@ -1,38 +1,31 @@
-// main.ts - Complete fixed version with proper multi-user session management
+// main.ts - Serveur d'authentification et marketplace avec gestion de sessions multi-utilisateurs
 import { Application, Router } from "https://deno.land/x/oak@v12.6.1/mod.ts";
 import { oakCors } from "https://deno.land/x/cors@v1.2.2/mod.ts";
 import { Client } from "https://deno.land/x/mysql@v2.12.1/mod.ts";
 import * as bcrypt from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
 import { create, verify } from "https://deno.land/x/djwt@v3.0.1/mod.ts";
 
-// Load environment variables
-const DB_HOST = "127.0.0.1";
-const DB_USER = "root";
-const DB_PASSWORD = "mypassword";
-const DB_NAME = "auth_db";
-const DB_PORT = parseInt("3306");
-const JWT_SECRET = "default-secret";
-const PORT = parseInt("8000");
+// ==========================================
+// CONFIGURATION
+// ==========================================
 
-// Database connection
-let client: Client;
+const DB_CONFIG = {
+    hostname: "127.0.0.1",
+    username: "root",
+    password: "mypassword",
+    db: "auth_db",
+    port: 3306,
+};
 
-// Create a proper crypto key for JWT
-const secretKey = await crypto.subtle.generateKey(
-    { name: "HMAC", hash: "SHA-512" },
-    true,
-    ["sign", "verify"]
-);
+const JWT_CONFIG = {
+    expirationHours: 2
+};
 
-// Types
-interface User {
-    id?: number;
-    username: string;
-    password: string;
-    is_admin?: boolean;
-    created_at?: Date;
-    updated_at?: Date;
-}
+const SERVER_PORT = 8000;
+
+// ==========================================
+// TYPES ET INTERFACES
+// ==========================================
 
 interface JWTPayload {
     userId: number;
@@ -69,37 +62,170 @@ interface SessionInfo {
     lastActivity: Date;
     userAgent?: string;
     ipAddress?: string;
-    tabId: string; // ✅ NEW: Unique identifier for each browser tab
+    tabId: string;
 }
 
-// ✅ FIXED: Enhanced session management with tab-specific sessions
+// ==========================================
+// VARIABLES GLOBALES
+// ==========================================
+
+let client: Client; // Connexion à la base de données
 const activeSessions: { [sessionId: string]: SessionInfo } = {};
-const userTabSessions: { [tabId: string]: string } = {}; // Maps tab IDs to session IDs
+const userTabSessions: { [tabId: string]: string } = {};
+
+// clé JWT
+const secretKey = await crypto.subtle.generateKey(
+    { name: "HMAC", hash: "SHA-512" },
+    false,
+    ["sign", "verify"]
+);
+
+// ==========================================
+// GESTIONNAIRE DU CHAT
+// ==========================================
+
+class ChatManager {
+    private clients: Map<string, WebSocketClient> = new Map();
+    private rooms: Map<string, Set<string>> = new Map();
+
+    // Ajouter un client au chat
+    addClient(clientId: string, client: WebSocketClient) {
+        this.clients.set(clientId, client);
+        
+        const roomKey = client.chatRoomId || client.articleId.toString();
+        
+        if (!this.rooms.has(roomKey)) {
+            this.rooms.set(roomKey, new Set());
+        }
+        this.rooms.get(roomKey)!.add(clientId);
+    }
+
+    // Supprimer un client du chat
+    removeClient(clientId: string) {
+        const client = this.clients.get(clientId);
+        if (client) {
+            const roomKey = client.chatRoomId || client.articleId.toString();
+            
+            const room = this.rooms.get(roomKey);
+            if (room) {
+                room.delete(clientId);
+                if (room.size === 0) {
+                    this.rooms.delete(roomKey);
+                }
+            }
+            
+            this.clients.delete(clientId);
+        }
+    }
+
+    // Diffuser un message à tous les clients d'une salle
+    broadcastToRoom(roomKey: string | number, message: any, excludeClientId?: string) {
+        const roomKeyStr = roomKey.toString();
+        const room = this.rooms.get(roomKeyStr);
+        
+        if (!room || room.size === 0) return;
+
+        const messageStr = JSON.stringify(message);
+        
+        room.forEach(clientId => {
+            if (clientId === excludeClientId) return;
+            
+            const client = this.clients.get(clientId);
+            if (client && client.ws.readyState === WebSocket.OPEN) {
+                try {
+                    client.ws.send(messageStr);
+                } catch (error) {
+                    console.error(`Erreur envoi à ${clientId}:`, error);
+                    this.removeClient(clientId);
+                }
+            }
+        });
+    }
+
+    // Sauvegarder un message en base de données
+    async saveMessage(message: ChatMessage): Promise<number> {
+        try {
+            const formattedTimestamp = new Date(message.timestamp).toISOString().slice(0, 19).replace('T', ' ');
+            
+            const result = await client.execute(
+                "INSERT INTO chat_messages (article_id, user_id, username, message, timestamp) VALUES (?, ?, ?, ?, ?)",
+                [message.article_id, message.user_id, message.username, message.message, formattedTimestamp]
+            );
+            
+            return result.lastInsertId as number;
+        } catch (error) {
+            console.error('Erreur sauvegarde message:', error);
+            throw error;
+        }
+    }
+
+    // Récupérer l'historique des messages
+    async getMessageHistory(articleId: number, limit: number = 50): Promise<ChatMessage[]> {
+        try {
+            const messages = await client.query(
+                "SELECT * FROM chat_messages WHERE article_id = ? ORDER BY timestamp DESC LIMIT ?",
+                [articleId, limit]
+            );
+            
+            return messages.reverse().map((msg: any) => ({
+                id: msg.id,
+                article_id: msg.article_id,
+                user_id: msg.user_id,
+                username: msg.username,
+                message: msg.message,
+                timestamp: msg.timestamp
+            }));
+        } catch (error) {
+            console.error('Erreur récupération historique:', error);
+            return [];
+        }
+    }
+}
+
+const chatManager = new ChatManager();
+
+// ==========================================
+// FONCTIONS UTILITAIRES
+// ==========================================
+
+// Générer un identifiant de session unique
+function generateSessionId(): string {
+    return crypto.randomUUID();
+}
+
+// Générer un identifiant d'onglet unique
+function generateTabId(): string {
+    return crypto.randomUUID();
+}
+
+// Générer un token JWT
+function generateJWT(payload: Omit<JWTPayload, 'iat' | 'exp'>): Promise<string> {
+    const fullPayload: JWTPayload = {
+        ...payload,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + (JWT_CONFIG.expirationHours * 60 * 60),
+    };
+    return create({ alg: "HS512", typ: "JWT" }, fullPayload, secretKey);
+}
+
+// ==========================================
+// CONNEXION ET INITIALISATION BASE DE DONNÉES
+// ==========================================
 
 async function connectToDatabase() {
     try {
         client = new Client();
-        await client.connect({
-            hostname: DB_HOST,
-            username: DB_USER,
-            password: DB_PASSWORD,
-            db: DB_NAME,
-            port: DB_PORT,
-        });
-        console.log("✅ Connected to MySQL database");
+        await client.connect(DB_CONFIG);
         return true;
     } catch (error) {
-        console.error("❌ Database connection failed:", error.message);
-        console.log("💡 Make sure Docker MySQL is running:");
-        console.log("   sudo docker ps");
-        console.log("   sudo docker start mysql-auth");
+        console.error("Échec de la connexion à la base de données:", error.message);
         return false;
     }
 }
 
 async function initializeDatabase() {
     try {
-        // Create users table with admin column
+        // utilisateurs
         await client.execute(`
             CREATE TABLE IF NOT EXISTS users (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -111,7 +237,7 @@ async function initializeDatabase() {
             )
         `);
 
-        // Create books table
+        // livres
         await client.execute(`
             CREATE TABLE IF NOT EXISTS books (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -124,7 +250,7 @@ async function initializeDatabase() {
             )
         `);
 
-        // Create DVDs table
+        // DVDs
         await client.execute(`
             CREATE TABLE IF NOT EXISTS dvds (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -137,7 +263,7 @@ async function initializeDatabase() {
             )
         `);
 
-        // Create CDs table
+        // CDs
         await client.execute(`
             CREATE TABLE IF NOT EXISTS cds (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -149,7 +275,7 @@ async function initializeDatabase() {
             )
         `);
 
-        // Create articles table (main marketplace table)
+        // articles
         await client.execute(`
             CREATE TABLE IF NOT EXISTS articles (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -168,17 +294,7 @@ async function initializeDatabase() {
             )
         `);
 
-        console.log("✅ Database tables initialized");
-        console.log("📚 Created tables: users, books, dvds, cds, articles");
-    } catch (error) {
-        console.error("❌ Database initialization error:", error.message);
-        throw error;
-    }
-}
-
-async function initializeChatTables() {
-    try {
-        // Create chat messages table with proper structure
+        // messages de chat
         await client.execute(`
             CREATE TABLE IF NOT EXISTS chat_messages (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -197,93 +313,65 @@ async function initializeChatTables() {
             )
         `);
 
-        console.log("✅ Chat tables initialized successfully");
     } catch (error) {
-        console.error("❌ Chat tables initialization error:", error.message);
+        console.error("Erreur d'initialisation de la base de données:", error.message);
         throw error;
     }
 }
 
-// Helper functions
-function generateSessionId(): string {
-    return crypto.randomUUID();
-}
+// ==========================================
+// MIDDLEWARES D'AUTHENTIFICATION
+// ==========================================
 
-function generateTabId(): string {
-    return crypto.randomUUID();
-}
-
-function generateJWT(payload: Omit<JWTPayload, 'iat' | 'exp'>): Promise<string> {
-    const fullPayload: JWTPayload = {
-        ...payload,
-        iat: Math.floor(Date.now() / 1000),
-        exp: Math.floor(Date.now() / 1000) + (8 * 60 * 60), // 8 hours
-    };
-    return create({ alg: "HS512", typ: "JWT" }, fullPayload, secretKey);
-}
-
-// ✅ FIXED: Enhanced cookie auth middleware with tab-specific session handling
+// Middleware d'authentification par cookies avec gestion spécifique des onglets
 async function cookieAuthMiddleware(ctx: any, next: () => Promise<unknown>) {
     try {
-        console.log(`🍪 Cookie auth middleware called for: ${ctx.request.method} ${ctx.request.url.pathname}`);
         
-        // Get both session token and tab ID from cookies
+        // Récupérer le token d'auth et l'ID d'onglet depuis les cookies
         const authToken = await ctx.cookies.get("auth_token");
         const tabId = await ctx.cookies.get("tab_id");
-        
-        console.log(`🍪 Auth token found: ${authToken ? 'YES' : 'NO'}`);
-        console.log(`🍪 Tab ID found: ${tabId ? tabId.substring(0, 8) + '...' : 'NO'}`);
 
         if (!authToken) {
-            console.log("❌ No auth token in cookies");
             ctx.response.status = 401;
-            ctx.response.body = { error: "Unauthorized: No token provided" };
+            ctx.response.body = { error: "Non autorisé: Aucun token fourni" };
             return;
         }
 
-        // Verify JWT token
-        console.log("🔍 Verifying JWT token...");
+        // Vérifier le token JWT
         const payload = await verify(authToken, secretKey) as JWTPayload;
-        console.log(`🔍 JWT payload: userId=${payload.userId}, username=${payload.username}, sessionId=${payload.sessionId.substring(0, 8)}...`);
         
-        // ✅ NEW: Check if this tab has a specific session
+        // Vérifier si cet onglet a une session spécifique
         let sessionId = payload.sessionId;
         if (tabId && userTabSessions[tabId]) {
             sessionId = userTabSessions[tabId];
-            console.log(`🏷️ Tab-specific session found: ${sessionId.substring(0, 8)}...`);
         }
         
-        // Check if session exists
+        // Vérifier si la session existe
         const sessionInfo = activeSessions[sessionId];
-        console.log(`🔍 Session exists: ${sessionInfo ? 'YES' : 'NO'}`);
         
         if (!sessionInfo) {
-            console.log(`❌ Session not found for sessionId: ${sessionId.substring(0, 8)}...`);
             
-            // ✅ NEW: Clean up orphaned tab session
+            // Nettoyer la session d'onglet orpheline
             if (tabId && userTabSessions[tabId]) {
                 delete userTabSessions[tabId];
-                console.log(`🧹 Cleaned up orphaned tab session for tab: ${tabId.substring(0, 8)}...`);
             }
             
             ctx.response.status = 401;
-            ctx.response.body = { error: "Unauthorized: Session expired" };
+            ctx.response.body = { error: "Non autorisé: Session expirée" };
             return;
         }
 
-        // ✅ FIXED: Verify that the session belongs to the same user (security check)
+        // Vérifier que la session appartient au même utilisateur (vérification de sécurité)
         if (sessionInfo.userId !== payload.userId) {
-            console.log(`❌ Session user mismatch: session=${sessionInfo.userId}, token=${payload.userId}`);
             ctx.response.status = 401;
-            ctx.response.body = { error: "Unauthorized: Invalid session" };
+            ctx.response.body = { error: "Non autorisé: Session invalide" };
             return;
         }
 
-        // Update last activity
+        // Mettre à jour la dernière activité
         sessionInfo.lastActivity = new Date();
-        console.log(`✅ Session validated for user: ${sessionInfo.username} (tab: ${tabId?.substring(0, 8) || 'default'}...)`);
 
-        // Add user info to context
+        // Ajouter les infos utilisateur au contexte
         ctx.state.user = {
             id: payload.userId,
             username: payload.username,
@@ -294,14 +382,14 @@ async function cookieAuthMiddleware(ctx: any, next: () => Promise<unknown>) {
 
         await next();
     } catch (error) {
-        console.error("❌ Cookie auth middleware error:", error);
-        console.error("❌ Error details:", error.message);
+        console.error("Erreur middleware auth cookies:", error);
+        console.error("Détails de l'erreur:", error.message);
         ctx.response.status = 401;
-        ctx.response.body = { error: "Unauthorized: Invalid token" };
+        ctx.response.body = { error: "Non autorisé: Token invalide" };
     }
 }
 
-// Simple auth middleware for legacy endpoints
+// Middleware d'authentification simple pour les endpoints hérités
 async function simpleAuthMiddleware(ctx: any, next: () => Promise<unknown>) {
     try {
         const body = await ctx.request.body();
@@ -310,22 +398,22 @@ async function simpleAuthMiddleware(ctx: any, next: () => Promise<unknown>) {
 
         if (!auth_token) {
             ctx.response.status = 401;
-            ctx.response.body = { error: "Unauthorized: No token provided" };
+            ctx.response.body = { error: "Non autorisé: Aucun token fourni" };
             return;
         }
 
-        // Verify JWT token
+        // Vérifier le token JWT
         const payload = await verify(auth_token, secretKey) as JWTPayload;
         
-        // Check if session exists
+        // Vérifier si la session existe
         const sessionInfo = activeSessions[payload.sessionId];
         if (!sessionInfo) {
             ctx.response.status = 401;
-            ctx.response.body = { error: "Unauthorized: Session expired" };
+            ctx.response.body = { error: "Non autorisé: Session expirée" };
             return;
         }
 
-        // Add user info to context
+        // Ajouter les infos utilisateur au contexte
         ctx.state.user = {
             id: payload.userId,
             username: payload.username,
@@ -334,190 +422,303 @@ async function simpleAuthMiddleware(ctx: any, next: () => Promise<unknown>) {
 
         await next();
     } catch (error) {
-        console.error("❌ Simple auth middleware error:", error);
+        console.error("Erreur middleware auth simple:", error);
         ctx.response.status = 401;
-        ctx.response.body = { error: "Unauthorized: Invalid token" };
+        ctx.response.body = { error: "Non autorisé: Token invalide" };
     }
 }
 
-// Chat Manager Class
-class ChatManager {
-    private clients: Map<string, WebSocketClient> = new Map();
-    private rooms: Map<string, Set<string>> = new Map();
+// ==========================================
+// GESTIONNAIRE WEBSOCKET POUR LE CHAT
+// ==========================================
 
-    addClient(clientId: string, client: WebSocketClient) {
-        this.clients.set(clientId, client);
+async function handleChatWebSocket(ctx: any) {
+    
+    try {
+        const url = ctx.request.url;
+        const pathParts = url.pathname.split('/');
         
-        const roomKey = client.chatRoomId || client.articleId.toString();
-        
-        if (!this.rooms.has(roomKey)) {
-            this.rooms.set(roomKey, new Set());
+        if (pathParts.length < 4 || pathParts[1] !== 'ws' || pathParts[2] !== 'chat') {
+            ctx.response.status = 400;
+            ctx.response.body = { error: 'Format de chemin invalide' };
+            return;
         }
-        this.rooms.get(roomKey)!.add(clientId);
-
-        console.log(`📞 User ${client.username} (${clientId}) joined room ${roomKey}`);
-    }
-
-    removeClient(clientId: string) {
-        const client = this.clients.get(clientId);
-        if (client) {
-            const roomKey = client.chatRoomId || client.articleId.toString();
-            
-            const room = this.rooms.get(roomKey);
-            if (room) {
-                room.delete(clientId);
-                if (room.size === 0) {
-                    this.rooms.delete(roomKey);
-                }
-            }
-            
-            this.clients.delete(clientId);
-            console.log(`📞 User ${client.username} (${clientId}) left room ${roomKey}`);
-        }
-    }
-
-    broadcastToRoom(roomKey: string | number, message: any, excludeClientId?: string) {
-        const roomKeyStr = roomKey.toString();
-        const room = this.rooms.get(roomKeyStr);
         
-        if (!room || room.size === 0) {
+        const chatRoomId = pathParts[3];
+        const userId = parseInt(url.searchParams.get('userId') || '0');
+        
+        if (!chatRoomId || !userId || isNaN(userId)) {
+            ctx.response.status = 400;
+            ctx.response.body = { error: 'Paramètres invalides' };
             return;
         }
 
-        const messageStr = JSON.stringify(message);
+        // Gérer différents types de salles de chat
+        let isDirectChat = false;
+        let articleId: number | null = null;
         
-        room.forEach(clientId => {
-            if (clientId === excludeClientId) {
+        if (chatRoomId.startsWith('direct_')) {
+            isDirectChat = true;
+        } else {
+            articleId = parseInt(chatRoomId);
+            if (!articleId || isNaN(articleId)) {
+                ctx.response.status = 400;
+                ctx.response.body = { error: 'ID article invalide' };
                 return;
             }
             
-            const client = this.clients.get(clientId);
-            if (client && client.ws.readyState === WebSocket.OPEN) {
-                try {
-                    client.ws.send(messageStr);
-                } catch (error) {
-                    console.error(`❌ Error sending to ${clientId}:`, error);
-                    this.removeClient(clientId);
-                }
+            // Vérifier que l'article existe
+            const articles = await client.query("SELECT id FROM articles WHERE id = ?", [articleId]);
+            if (articles.length === 0) {
+                ctx.response.status = 404;
+                ctx.response.body = { error: 'Article non trouvé' };
+                return;
             }
-        });
-    }
-
-    async saveMessage(message: ChatMessage): Promise<number> {
-        try {
-            const formattedTimestamp = new Date(message.timestamp).toISOString().slice(0, 19).replace('T', ' ');
-            
-            const result = await client.execute(
-                "INSERT INTO chat_messages (article_id, user_id, username, message, timestamp) VALUES (?, ?, ?, ?, ?)",
-                [message.article_id, message.user_id, message.username, message.message, formattedTimestamp]
-            );
-            
-            const messageId = result.lastInsertId as number;
-            return messageId;
-        } catch (error) {
-            console.error('❌ Error saving message:', error);
-            throw error;
         }
-    }
 
-    async getMessageHistory(articleId: number, limit: number = 50): Promise<ChatMessage[]> {
-        try {
-            const messages = await client.query(
-                "SELECT * FROM chat_messages WHERE article_id = ? ORDER BY timestamp DESC LIMIT ?",
-                [articleId, limit]
-            );
+        // Récupérer les infos utilisateur
+        const users = await client.query("SELECT username FROM users WHERE id = ?", [userId]);
+        if (users.length === 0) {
+            ctx.response.status = 404;
+            ctx.response.body = { error: 'Utilisateur non trouvé' };
+            return;
+        }
+        const username = users[0].username;
+
+        // Mettre à niveau vers WebSocket
+        const socket = ctx.upgrade();
+        const clientId = `${userId}_${chatRoomId}_${Date.now()}`;
+        let clientData: WebSocketClient;
+
+        socket.onopen = () => {
+            clientData = {
+                ws: socket,
+                userId,
+                username,
+                articleId: articleId || 0,
+                chatRoomId
+            };
             
-            return messages.reverse().map((msg: any) => ({
-                id: msg.id,
-                article_id: msg.article_id,
-                user_id: msg.user_id,
-                username: msg.username,
-                message: msg.message,
-                timestamp: msg.timestamp
+            chatManager.addClient(clientId, clientData);
+            
+            socket.send(JSON.stringify({
+                type: 'connected',
+                message: 'Connexion au chat réussie',
+                chatRoomId,
+                isDirectChat
             }));
-        } catch (error) {
-            console.error('❌ Error getting message history:', error);
-            return [];
-        }
+            
+            // Envoyer l'historique des messages pour les chats basés sur des articles
+            if (!isDirectChat && articleId) {
+                chatManager.getMessageHistory(articleId).then(history => {
+                    if (socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({
+                            type: 'history',
+                            messages: history
+                        }));
+                    }
+                });
+            } else {
+                socket.send(JSON.stringify({
+                    type: 'history',
+                    messages: []
+                }));
+            }
+
+            // Notifier les autres qu'un utilisateur a rejoint
+            chatManager.broadcastToRoom(chatRoomId, {
+                type: 'user_joined',
+                username,
+                userId,
+                chatRoomId,
+                isDirectChat
+            }, clientId);
+        };
+
+        socket.onmessage = async (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                
+                switch (data.type) {
+                    case 'join':
+                        socket.send(JSON.stringify({
+                            type: 'joined',
+                            message: 'Salle de chat rejointe avec succès',
+                            chatRoomId,
+                            isDirectChat
+                        }));
+                        break;
+                        
+                    case 'message':
+                        if (data.message && data.message.trim()) {
+                            if (isDirectChat) {
+                                // Chat direct - diffuser sans sauvegarder
+                                const message = {
+                                    type: 'message',
+                                    userId,
+                                    username,
+                                    message: data.message.trim(),
+                                    timestamp: new Date().toISOString(),
+                                    chatRoomId,
+                                    isDirectChat: true
+                                };
+                                
+                                chatManager.broadcastToRoom(chatRoomId, message);
+                            } else if (articleId) {
+                                // Chat basé sur un article - sauvegarder en base de données
+                                const message: ChatMessage = {
+                                    article_id: articleId,
+                                    user_id: userId,
+                                    username,
+                                    message: data.message.trim(),
+                                    timestamp: new Date().toISOString()
+                                };
+                                
+                                try {
+                                    const messageId = await chatManager.saveMessage(message);
+                                    message.id = messageId;
+                                    
+                                    const broadcastMessage = {
+                                        type: 'message',
+                                        ...message,
+                                        userId: message.user_id,
+                                        isDirectChat: false
+                                    };
+                                    
+                                    chatManager.broadcastToRoom(chatRoomId, broadcastMessage);
+                                } catch (error) {
+                                    console.error('Erreur sauvegarde message:', error);
+                                    socket.send(JSON.stringify({
+                                        type: 'error',
+                                        message: 'Échec de la sauvegarde du message'
+                                    }));
+                                }
+                            }
+                        }
+                        break;
+
+                    case 'typing':
+                        chatManager.broadcastToRoom(chatRoomId, {
+                            type: 'typing',
+                            username,
+                            userId,
+                            chatRoomId
+                        }, clientId);
+                        break;
+
+                    case 'stop_typing':
+                        chatManager.broadcastToRoom(chatRoomId, {
+                            type: 'stop_typing',
+                            username,
+                            userId,
+                            chatRoomId
+                        }, clientId);
+                        break;
+                }
+            } catch (error) {
+                console.error('Erreur traitement message WebSocket:', error);
+                socket.send(JSON.stringify({
+                    type: 'error',
+                    message: 'Format de message invalide'
+                }));
+            }
+        };
+
+        socket.onclose = () => {
+            if (clientData) {
+                chatManager.broadcastToRoom(chatRoomId, {
+                    type: 'user_left',
+                    username,
+                    userId,
+                    chatRoomId
+                }, clientId);
+            }
+            chatManager.removeClient(clientId);
+        };
+
+        socket.onerror = (error) => {
+            console.error(`Erreur WebSocket pour l'utilisateur ${username}:`, error);
+            chatManager.removeClient(clientId);
+        };
+        
+    } catch (error) {
+        console.error('Erreur dans le gestionnaire WebSocket chat:', error);
+        ctx.response.status = 500;
+        ctx.response.body = { error: "Échec de la connexion WebSocket" };
     }
 }
 
-const chatManager = new ChatManager();
+// ==========================================
+// ROUTES D'AUTHENTIFICATION
+// ==========================================
 
-// Router setup
 const router = new Router();
 
-// ✅ NEW: Tab initialization endpoint
+// Initialisation d'un nouvel onglet
 router.post("/api/auth/init-tab", async (ctx) => {
     try {
         const tabId = generateTabId();
         
-        // Set tab ID cookie that persists for the browser session
+        // Définir le cookie d'ID d'onglet qui persiste pour la session du navigateur
         await ctx.cookies.set("tab_id", tabId, {
-            httpOnly: false, // ✅ Allow JavaScript access for debugging
+            httpOnly: false, // Permettre l'accès JavaScript pour le debug
             sameSite: "lax",
-            secure: false, // Set to true in production with HTTPS
+            secure: false, // Mettre à true en production avec HTTPS
             domain: "localhost"
-            // No maxAge = session cookie (deleted when browser/tab closes)
         });
         
-        console.log(`🏷️ New tab initialized: ${tabId.substring(0, 8)}...`);
-        
         ctx.response.body = {
-            message: "Tab initialized successfully",
+            message: "Onglet initialisé avec succès",
             tabId: tabId
         };
     } catch (error) {
-        console.error("❌ Tab initialization error:", error);
+        console.error("Erreur initialisation onglet:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error" };
+        ctx.response.body = { error: "Erreur interne du serveur" };
     }
 });
 
-// Register endpoint (updated)
+// Inscription d'un nouvel utilisateur
 router.post("/api/auth/register", async (ctx) => {
     try {
         const body = await ctx.request.body();
         const { username, password } = await body.value;
 
-        console.log(`📝 Registration attempt for: ${username}`);
-
         // Validation
         if (!username || !password) {
             ctx.response.status = 400;
-            ctx.response.body = { error: "Username and password are required" };
+            ctx.response.body = { error: "Le nom d'utilisateur et le mot de passe sont requis" };
             return;
         }
 
         if (username.length < 3) {
             ctx.response.status = 400;
-            ctx.response.body = { error: "Username must be at least 3 characters long" };
+            ctx.response.body = { error: "Le nom d'utilisateur doit faire au moins 3 caractères" };
             return;
         }
 
         if (password.length < 6) {
             ctx.response.status = 400;
-            ctx.response.body = { error: "Password must be at least 6 characters long" };
+            ctx.response.body = { error: "Le mot de passe doit faire au moins 6 caractères" };
             return;
         }
 
-        // Check if user already exists
+        // Vérifier si l'utilisateur existe déjà
         const existingUser = await client.query(
             "SELECT id FROM users WHERE username = ?",
             [username]
         );
 
         if (existingUser.length > 0) {
-            console.log(`❌ Registration failed: Username already exists - ${username}`);
             ctx.response.status = 409;
-            ctx.response.body = { error: "Username already exists" };
+            ctx.response.body = { error: "Le nom d'utilisateur existe déjà" };
             return;
         }
 
-        // Hash password
+        // Hacher le mot de passe
         const hashedPassword = await bcrypt.hash(password);
 
-        // Insert user
+        // Insérer l'utilisateur
         const result = await client.execute(
             "INSERT INTO users (username, password, is_admin) VALUES (?, ?, ?)",
             [username, hashedPassword, false]
@@ -526,7 +727,7 @@ router.post("/api/auth/register", async (ctx) => {
         const userId = result.lastInsertId as number;
         const sessionId = generateSessionId();
 
-        // ✅ NEW: Get or create tab ID
+        // Obtenir ou créer l'ID d'onglet
         let tabId = await ctx.cookies.get("tab_id");
         if (!tabId) {
             tabId = generateTabId();
@@ -538,11 +739,11 @@ router.post("/api/auth/register", async (ctx) => {
             });
         }
 
-        // Get client info for session tracking
-        const userAgent = ctx.request.headers.get("user-agent") || "Unknown";
-        const ipAddress = ctx.request.ip || "Unknown";
+        // Obtenir les infos client pour le suivi de session
+        const userAgent = ctx.request.headers.get("user-agent") || "Inconnu";
+        const ipAddress = ctx.request.ip || "Inconnu";
 
-        // Create session
+        // Créer la session
         activeSessions[sessionId] = {
             userId,
             username,
@@ -554,10 +755,10 @@ router.post("/api/auth/register", async (ctx) => {
             tabId
         };
 
-        // ✅ NEW: Map tab to session
+        // Mapper l'onglet à la session
         userTabSessions[tabId] = sessionId;
 
-        // Generate JWT
+        // Générer le JWT
         const token = await generateJWT({
             userId,
             username,
@@ -565,21 +766,19 @@ router.post("/api/auth/register", async (ctx) => {
             isAdmin: false
         });
 
-        // Set auth token cookie
+        // Définir le cookie de token d'auth
         const isProduction = Deno.env.get('NODE_ENV') === 'production';
         await ctx.cookies.set("auth_token", token, {
             httpOnly: true,
             sameSite: "lax",
-            maxAge: 8 * 60 * 60 * 1000, // 8 hours in milliseconds
+            maxAge: JWT_CONFIG.expirationHours * 60 * 60 * 1000,
             secure: isProduction,
             domain: "localhost"
         });
 
-        console.log(`✅ User registered successfully: ${username} (ID: ${userId}, Session: ${sessionId.substring(0, 8)}..., Tab: ${tabId.substring(0, 8)}...)`);
-
         ctx.response.status = 201;
         ctx.response.body = {
-            message: "User registered successfully",
+            message: "Utilisateur inscrit avec succès",
             user: {
                 id: userId,
                 username,
@@ -589,21 +788,19 @@ router.post("/api/auth/register", async (ctx) => {
             tabId: tabId
         };
     } catch (error) {
-        console.error("❌ Registration error:", error);
+        console.error("Erreur inscription:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error: " + error.message };
+        ctx.response.body = { error: "Erreur interne du serveur: " + error.message };
     }
 });
 
-// ✅ FIXED: Login endpoint with proper tab-specific session handling
+// Connexion d'un utilisateur
 router.post("/api/auth/login", async (ctx) => {
     try {
         const body = await ctx.request.body();
         const { username, password } = await body.value;
-        
-        console.log(`🔐 Login attempt for: ${username}`);
 
-        // Find user in database
+        // Rechercher l'utilisateur en base de données
         const users = await client.query(
             "SELECT id, username, password, is_admin FROM users WHERE username = ?",
             [username]
@@ -611,21 +808,21 @@ router.post("/api/auth/login", async (ctx) => {
 
         if (users.length === 0) {
             ctx.response.status = 401;
-            ctx.response.body = { error: "Invalid username or password" };
+            ctx.response.body = { error: "Nom d'utilisateur ou mot de passe invalide" };
             return;
         }
 
         const user = users[0] as any;
 
-        // Verify password
+        // Vérifier le mot de passe
         const result = await bcrypt.compare(password, user.password);
         if (!result) {
             ctx.response.status = 401;
-            ctx.response.body = { error: "Invalid username or password" };
+            ctx.response.body = { error: "Nom d'utilisateur ou mot de passe invalide" };
             return;
         }
 
-        // ✅ NEW: Get or create tab ID
+        // Obtenir ou créer l'ID d'onglet
         let tabId = await ctx.cookies.get("tab_id");
         if (!tabId) {
             tabId = generateTabId();
@@ -637,25 +834,24 @@ router.post("/api/auth/login", async (ctx) => {
             });
         }
 
-        // ✅ NEW: Check if this tab already has a session for a different user
+        // Vérifier si cet onglet a déjà une session pour un utilisateur différent
         if (userTabSessions[tabId]) {
             const existingSessionId = userTabSessions[tabId];
             const existingSession = activeSessions[existingSessionId];
             
             if (existingSession && existingSession.userId !== user.id) {
-                console.log(`🔄 Tab ${tabId.substring(0, 8)}... switching from user ${existingSession.username} to ${username}`);
-                // Don't delete the old session, just unmap it from this tab
+                // Ne pas supprimer l'ancienne session, juste la démapper de cet onglet
                 delete userTabSessions[tabId];
             }
         }
 
         const sessionId = generateSessionId();
 
-        // Get client info for session tracking
-        const userAgent = ctx.request.headers.get("user-agent") || "Unknown";
-        const ipAddress = ctx.request.ip || "Unknown";
+        // Obtenir les infos client pour le suivi de session
+        const userAgent = ctx.request.headers.get("user-agent") || "Inconnu";
+        const ipAddress = ctx.request.ip || "Inconnu";
 
-        // Create new session
+        // Créer une nouvelle session
         activeSessions[sessionId] = {
             userId: user.id,
             username: user.username,
@@ -667,13 +863,10 @@ router.post("/api/auth/login", async (ctx) => {
             tabId
         };
 
-        // ✅ NEW: Map this tab to the new session
+        // Mapper cet onglet à la nouvelle session
         userTabSessions[tabId] = sessionId;
 
-        console.log(`📊 Active sessions after login: ${Object.keys(activeSessions).length}`);
-        console.log(`🏷️ Tab ${tabId.substring(0, 8)}... now mapped to session ${sessionId.substring(0, 8)}... for user ${username}`);
-
-        // Generate JWT
+        // Générer le JWT
         const token = await generateJWT({
             userId: user.id,
             username: user.username,
@@ -681,17 +874,15 @@ router.post("/api/auth/login", async (ctx) => {
             isAdmin: Boolean(user.is_admin)
         });
 
-        // Set auth token cookie
+        // Définir le cookie de token d'auth
         const isProduction = Deno.env.get('NODE_ENV') === 'production';
         await ctx.cookies.set("auth_token", token, {
             httpOnly: true,
             sameSite: "lax",
-            maxAge: 8 * 60 * 60 * 1000, // 8 hours in milliseconds
+            maxAge: JWT_CONFIG.expirationHours * 60 * 60 * 1000,
             secure: isProduction,
             domain: "localhost"
         });
-
-        console.log(`✅ User logged in: ${username} (Session: ${sessionId.substring(0, 8)}..., Tab: ${tabId.substring(0, 8)}...) from ${userAgent.substring(0, 50)}...`);
 
         ctx.response.status = 200;
         ctx.response.body = { 
@@ -705,51 +896,46 @@ router.post("/api/auth/login", async (ctx) => {
             tabId: tabId
         };
     } catch (error) {
-        console.error("❌ Login error:", error);
+        console.error("Erreur connexion:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error" };
+        ctx.response.body = { error: "Erreur interne du serveur" };
     }
 });
 
-// ✅ FIXED: Logout endpoint with tab-specific cleanup
+// Déconnexion d'un utilisateur
 router.post("/api/auth/logout", cookieAuthMiddleware, async (ctx) => {
     try {
         const user = ctx.state.user;
         
-        // Clean up the current session
+        // Nettoyer la session actuelle
         if (user.sessionId && activeSessions[user.sessionId]) {
             delete activeSessions[user.sessionId];
-            console.log(`👋 Session ${user.sessionId.substring(0, 8)}... logged out for user: ${user.username}`);
         }
 
-        // ✅ NEW: Clean up tab mapping
+        // Nettoyer le mapping d'onglet
         if (user.tabId && userTabSessions[user.tabId]) {
             delete userTabSessions[user.tabId];
-            console.log(`🏷️ Tab ${user.tabId.substring(0, 8)}... session mapping cleared`);
         }
-        
-        const remainingSessions = Object.values(activeSessions).filter(s => s.userId === user.id).length;
-        console.log(`📊 User ${user.username} has ${remainingSessions} remaining active session(s)`);
 
-        // Clear cookies
+        // Effacer les cookies
         await ctx.cookies.delete("auth_token");
         await ctx.cookies.delete("tab_id");
 
-        ctx.response.body = { message: "Logout successful" };
+        ctx.response.body = { message: "Déconnexion réussie" };
     } catch (error) {
-        console.error("❌ Logout error:", error);
+        console.error("Erreur déconnexion:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error" };
+        ctx.response.body = { error: "Erreur interne du serveur" };
     }
 });
 
-// Test cookie endpoint - for profile page
+// Test de vérification des cookies - pour la page de profil
 router.get("/test_cookie", cookieAuthMiddleware, async (ctx) => {
     try {
         const user = ctx.state.user;
         
         ctx.response.body = { 
-            message: 'Token verified successfully', 
+            message: 'Token vérifié avec succès', 
             token_data: {
                 userId: user.id,
                 username: user.username,
@@ -759,13 +945,17 @@ router.get("/test_cookie", cookieAuthMiddleware, async (ctx) => {
             }
         };
     } catch (error) {
-        console.error("❌ Test cookie error:", error);
+        console.error("Erreur test cookie:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error" };
+        ctx.response.body = { error: "Erreur interne du serveur" };
     }
 });
 
-// Create a book
+// ==========================================
+// ROUTES DE GESTION DES ARTICLES
+// ==========================================
+
+// Créer un livre
 router.post("/api/books", simpleAuthMiddleware, async (ctx) => {
     try {
         const body = await ctx.request.body();
@@ -773,7 +963,7 @@ router.post("/api/books", simpleAuthMiddleware, async (ctx) => {
 
         if (!title || !author) {
             ctx.response.status = 400;
-            ctx.response.body = { error: "Title and author are required" };
+            ctx.response.body = { error: "Le titre et l'auteur sont requis" };
             return;
         }
 
@@ -784,7 +974,7 @@ router.post("/api/books", simpleAuthMiddleware, async (ctx) => {
 
         ctx.response.status = 201;
         ctx.response.body = {
-            message: "Book created successfully",
+            message: "Livre créé avec succès",
             book: {
                 id: result.lastInsertId,
                 title,
@@ -794,13 +984,13 @@ router.post("/api/books", simpleAuthMiddleware, async (ctx) => {
             },
         };
     } catch (error) {
-        console.error("❌ Book creation error:", error);
+        console.error("Erreur création livre:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error" };
+        ctx.response.body = { error: "Erreur interne du serveur" };
     }
 });
 
-// Create a DVD
+// Créer un DVD
 router.post("/api/dvds", simpleAuthMiddleware, async (ctx) => {
     try {
         const body = await ctx.request.body();
@@ -808,7 +998,7 @@ router.post("/api/dvds", simpleAuthMiddleware, async (ctx) => {
 
         if (!title || !director) {
             ctx.response.status = 400;
-            ctx.response.body = { error: "Title and director are required" };
+            ctx.response.body = { error: "Le titre et le réalisateur sont requis" };
             return;
         }
 
@@ -819,7 +1009,7 @@ router.post("/api/dvds", simpleAuthMiddleware, async (ctx) => {
 
         ctx.response.status = 201;
         ctx.response.body = {
-            message: "DVD created successfully",
+            message: "DVD créé avec succès",
             dvd: {
                 id: result.lastInsertId,
                 title,
@@ -829,13 +1019,13 @@ router.post("/api/dvds", simpleAuthMiddleware, async (ctx) => {
             },
         };
     } catch (error) {
-        console.error("❌ DVD creation error:", error);
+        console.error("Erreur création DVD:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error" };
+        ctx.response.body = { error: "Erreur interne du serveur" };
     }
 });
 
-// Create a CD
+// Créer un CD
 router.post("/api/cds", simpleAuthMiddleware, async (ctx) => {
     try {
         const body = await ctx.request.body();
@@ -843,7 +1033,7 @@ router.post("/api/cds", simpleAuthMiddleware, async (ctx) => {
 
         if (!author) {
             ctx.response.status = 400;
-            ctx.response.body = { error: "Author is required" };
+            ctx.response.body = { error: "L'auteur est requis" };
             return;
         }
 
@@ -854,7 +1044,7 @@ router.post("/api/cds", simpleAuthMiddleware, async (ctx) => {
 
         ctx.response.status = 201;
         ctx.response.body = {
-            message: "CD created successfully",
+            message: "CD créé avec succès",
             cd: {
                 id: result.lastInsertId,
                 author,
@@ -863,14 +1053,14 @@ router.post("/api/cds", simpleAuthMiddleware, async (ctx) => {
             },
         };
     } catch (error) {
-        console.error("❌ CD creation error:", error);
+        console.error("Erreur création CD:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error" };
+        ctx.response.body = { error: "Erreur interne du serveur" };
     }
 });
 
-// Create an article
-router.post("/api/articles", simpleAuthMiddleware, async (ctx) => {
+// Créer un article de marketplace
+router.post("/api/articles", cookieAuthMiddleware, async (ctx) => {
     try {
         const user = ctx.state.user;
         
@@ -878,29 +1068,27 @@ router.post("/api/articles", simpleAuthMiddleware, async (ctx) => {
         const bodyValue = await body.value;
         const { item_type, item_id, description, price } = bodyValue;
         
-        console.log('📝 Creating article:', { item_type, item_id, description, price });
-        
         // Validation
         if (!item_type || !item_id || price === undefined || price === null) {
             ctx.response.status = 400;
-            ctx.response.body = { error: "Item type, item ID, and price are required" };
+            ctx.response.body = { error: "Le type d'article, l'ID de l'article et le prix sont requis" };
             return;
         }
 
         if (!['book', 'dvd', 'cd'].includes(item_type)) {
             ctx.response.status = 400;
-            ctx.response.body = { error: "Item type must be 'book', 'dvd', or 'cd'" };
+            ctx.response.body = { error: "Le type d'article doit être 'book', 'dvd' ou 'cd'" };
             return;
         }
 
         const priceNum = parseFloat(price);
         if (isNaN(priceNum) || priceNum <= 0) {
             ctx.response.status = 400;
-            ctx.response.body = { error: "Price must be a valid number greater than 0" };
+            ctx.response.body = { error: "Le prix doit être un nombre valide supérieur à 0" };
             return;
         }
 
-        // Verify that the item exists
+        // Vérifier que l'article existe
         let itemExists = false;
         try {
             if (item_type === 'book') {
@@ -914,30 +1102,28 @@ router.post("/api/articles", simpleAuthMiddleware, async (ctx) => {
                 itemExists = cds.length > 0;
             }
         } catch (dbError) {
-            console.error("❌ Database error checking item:", dbError);
+            console.error("Erreur base de données vérification article:", dbError);
             ctx.response.status = 500;
-            ctx.response.body = { error: "Database error while verifying item" };
+            ctx.response.body = { error: "Erreur base de données lors de la vérification de l'article" };
             return;
         }
 
         if (!itemExists) {
             ctx.response.status = 404;
-            ctx.response.body = { error: `${item_type} with ID ${item_id} not found` };
+            ctx.response.body = { error: `${item_type} avec l'ID ${item_id} non trouvé` };
             return;
         }
 
-        // Create the article
+        // Créer l'article
         try {
             const result = await client.execute(
                 "INSERT INTO articles (user_id, item_type, item_id, description, price) VALUES (?, ?, ?, ?, ?)",
                 [user.id, item_type, item_id, description || null, priceNum]
             );
 
-            console.log(`✅ Article created successfully: ID ${result.lastInsertId}`);
-
             ctx.response.status = 201;
             ctx.response.body = {
-                message: "Article created successfully",
+                message: "Article créé avec succès",
                 article: {
                     id: result.lastInsertId,
                     user_id: user.id,
@@ -950,38 +1136,27 @@ router.post("/api/articles", simpleAuthMiddleware, async (ctx) => {
                 },
             };
         } catch (dbError) {
-            console.error("❌ Database error creating article:", dbError);
+            console.error("Erreur base de données création article:", dbError);
             ctx.response.status = 500;
-            ctx.response.body = { error: "Database error while creating article" };
+            ctx.response.body = { error: "Erreur base de données lors de la création de l'article" };
             return;
         }
         
     } catch (error) {
-        console.error("❌ Article creation error:", error);
+        console.error("Erreur création article:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error: " + error.message };
+        ctx.response.body = { error: "Erreur interne du serveur: " + error.message };
     }
 });
 
-// Get all articles
+// Récupérer tous les articles
 router.get("/api/articles", async (ctx) => {
     try {
-        // Get books
+        // Récupérer les articles de livres
         const bookArticles = await client.query(`
             SELECT 
-                a.id,
-                a.user_id,
-                a.item_type,
-                a.item_id,
-                a.description,
-                a.price,
-                a.is_sold,
-                a.created_at,
-                a.updated_at,
-                b.title,
-                b.author,
-                b.publication_date,
-                b.genre,
+                a.id, a.user_id, a.item_type, a.item_id, a.description, a.price, a.is_sold, a.created_at, a.updated_at,
+                b.title, b.author, b.publication_date, b.genre,
                 u.username as seller_username
             FROM articles a
             JOIN books b ON a.item_id = b.id
@@ -989,22 +1164,11 @@ router.get("/api/articles", async (ctx) => {
             WHERE a.item_type = 'book'
         `);
 
-        // Get DVDs
+        // Récupérer les articles de DVDs
         const dvdArticles = await client.query(`
             SELECT 
-                a.id,
-                a.user_id,
-                a.item_type,
-                a.item_id,
-                a.description,
-                a.price,
-                a.is_sold,
-                a.created_at,
-                a.updated_at,
-                d.title,
-                d.director,
-                d.publication_date,
-                d.genre,
+                a.id, a.user_id, a.item_type, a.item_id, a.description, a.price, a.is_sold, a.created_at, a.updated_at,
+                d.title, d.director, d.publication_date, d.genre,
                 u.username as seller_username
             FROM articles a
             JOIN dvds d ON a.item_id = d.id
@@ -1012,21 +1176,11 @@ router.get("/api/articles", async (ctx) => {
             WHERE a.item_type = 'dvd'
         `);
 
-        // Get CDs
+        // Récupérer les articles de CDs
         const cdArticles = await client.query(`
             SELECT 
-                a.id,
-                a.user_id,
-                a.item_type,
-                a.item_id,
-                a.description,
-                a.price,
-                a.is_sold,
-                a.created_at,
-                a.updated_at,
-                c.author,
-                c.publication_date,
-                c.genre,
+                a.id, a.user_id, a.item_type, a.item_id, a.description, a.price, a.is_sold, a.created_at, a.updated_at,
+                c.author, c.publication_date, c.genre,
                 u.username as seller_username
             FROM articles a
             JOIN cds c ON a.item_id = c.id
@@ -1034,7 +1188,7 @@ router.get("/api/articles", async (ctx) => {
             WHERE a.item_type = 'cd'
         `);
 
-        // Format all articles with consistent structure
+        // Formater tous les articles avec une structure cohérente
         const allArticles = [
             ...bookArticles.map((article: any) => ({
                 id: article.id,
@@ -1091,38 +1245,27 @@ router.get("/api/articles", async (ctx) => {
             }))
         ];
 
-        // Sort by creation date (newest first)
+        // Trier par date de création (plus récent en premier)
         allArticles.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
         ctx.response.body = {
-            message: "All articles retrieved successfully",
+            message: "Tous les articles récupérés avec succès",
             articles: allArticles
         };
     } catch (error) {
-        console.error("❌ All articles retrieval error:", error);
+        console.error("Erreur récupération tous les articles:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error" };
+        ctx.response.body = { error: "Erreur interne du serveur" };
     }
 });
 
-// Get articles by type
+// Récupérer les articles par type
 router.get("/api/articles/book", async (ctx) => {
     try {
         const articles = await client.query(`
             SELECT 
-                a.id,
-                a.user_id,
-                a.item_type,
-                a.item_id,
-                a.description,
-                a.price,
-                a.is_sold,
-                a.created_at,
-                a.updated_at,
-                b.title,
-                b.author,
-                b.publication_date,
-                b.genre,
+                a.id, a.user_id, a.item_type, a.item_id, a.description, a.price, a.is_sold, a.created_at, a.updated_at,
+                b.title, b.author, b.publication_date, b.genre,
                 u.username as seller_username
             FROM articles a
             JOIN books b ON a.item_id = b.id
@@ -1151,13 +1294,13 @@ router.get("/api/articles/book", async (ctx) => {
         }));
 
         ctx.response.body = {
-            message: "Book articles retrieved successfully",
+            message: "Articles de livres récupérés avec succès",
             articles: formattedArticles
         };
     } catch (error) {
-        console.error("❌ Book articles retrieval error:", error);
+        console.error("Erreur récupération articles livres:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error" };
+        ctx.response.body = { error: "Erreur interne du serveur" };
     }
 });
 
@@ -1165,19 +1308,8 @@ router.get("/api/articles/dvd", async (ctx) => {
     try {
         const articles = await client.query(`
             SELECT 
-                a.id,
-                a.user_id,
-                a.item_type,
-                a.item_id,
-                a.description,
-                a.price,
-                a.is_sold,
-                a.created_at,
-                a.updated_at,
-                d.title,
-                d.director,
-                d.publication_date,
-                d.genre,
+                a.id, a.user_id, a.item_type, a.item_id, a.description, a.price, a.is_sold, a.created_at, a.updated_at,
+                d.title, d.director, d.publication_date, d.genre,
                 u.username as seller_username
             FROM articles a
             JOIN dvds d ON a.item_id = d.id
@@ -1206,13 +1338,13 @@ router.get("/api/articles/dvd", async (ctx) => {
         }));
 
         ctx.response.body = {
-            message: "DVD articles retrieved successfully",
+            message: "Articles de DVDs récupérés avec succès",
             articles: formattedArticles
         };
     } catch (error) {
-        console.error("❌ DVD articles retrieval error:", error);
+        console.error("Erreur récupération articles DVDs:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error" };
+        ctx.response.body = { error: "Erreur interne du serveur" };
     }
 });
 
@@ -1220,18 +1352,8 @@ router.get("/api/articles/cd", async (ctx) => {
     try {
         const articles = await client.query(`
             SELECT 
-                a.id,
-                a.user_id,
-                a.item_type,
-                a.item_id,
-                a.description,
-                a.price,
-                a.is_sold,
-                a.created_at,
-                a.updated_at,
-                c.author,
-                c.publication_date,
-                c.genre,
+                a.id, a.user_id, a.item_type, a.item_id, a.description, a.price, a.is_sold, a.created_at, a.updated_at,
+                c.author, c.publication_date, c.genre,
                 u.username as seller_username
             FROM articles a
             JOIN cds c ON a.item_id = c.id
@@ -1259,17 +1381,17 @@ router.get("/api/articles/cd", async (ctx) => {
         }));
 
         ctx.response.body = {
-            message: "CD articles retrieved successfully",
+            message: "Articles de CDs récupérés avec succès",
             articles: formattedArticles
         };
     } catch (error) {
-        console.error("❌ CD articles retrieval error:", error);
+        console.error("Erreur récupération articles CDs:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error" };
+        ctx.response.body = { error: "Erreur interne du serveur" };
     }
 });
 
-// Delete an article
+// Supprimer un article
 router.delete("/api/articles/:id", cookieAuthMiddleware, async (ctx) => {
     try {
         const articleId = parseInt(ctx.params.id);
@@ -1277,11 +1399,11 @@ router.delete("/api/articles/:id", cookieAuthMiddleware, async (ctx) => {
         
         if (!articleId || isNaN(articleId)) {
             ctx.response.status = 400;
-            ctx.response.body = { error: "Invalid article ID" };
+            ctx.response.body = { error: "ID d'article invalide" };
             return;
         }
         
-        // Check if the article exists
+        // Vérifier si l'article existe
         const articles = await client.query(
             "SELECT * FROM articles WHERE id = ?",
             [articleId]
@@ -1289,52 +1411,45 @@ router.delete("/api/articles/:id", cookieAuthMiddleware, async (ctx) => {
         
         if (articles.length === 0) {
             ctx.response.status = 404;
-            ctx.response.body = { error: "Article not found" };
+            ctx.response.body = { error: "Article non trouvé" };
             return;
         }
         
         const article = articles[0];
         
-        // Check permissions: either owner OR admin
+        // Vérifier les permissions: soit propriétaire SOIT admin
         const isOwner = article.user_id === user.id;
         
         if (!isOwner && !user.isAdmin) {
             ctx.response.status = 403;
-            ctx.response.body = { error: "Forbidden: You can only delete your own articles" };
+            ctx.response.body = { error: "Interdit: Vous ne pouvez supprimer que vos propres articles" };
             return;
         }
         
-        // Log admin deletion for auditing
-        if (user.isAdmin && !isOwner) {
-            console.log(`🚨 ADMIN DELETION: User ${user.username} (ID: ${user.id}) is deleting article ${articleId} owned by user ${article.user_id}`);
-        }
-        
-        // Delete the article (this will cascade delete related chat messages)
+        // Supprimer l'article (ceci supprimera en cascade les messages de chat associés)
         await client.execute(
             "DELETE FROM articles WHERE id = ?",
             [articleId]
         );
         
-        console.log(`🗑️ Article ${articleId} deleted by ${user.isAdmin && !isOwner ? 'admin' : 'owner'} ${user.username}`);
-        
         ctx.response.status = 200;
         ctx.response.body = {
-            message: "Article deleted successfully",
+            message: "Article supprimé avec succès",
             deletedArticle: {
                 id: articleId,
                 item_type: article.item_type,
                 item_id: article.item_id
             },
-            deletedBy: user.isAdmin && !isOwner ? "admin" : "owner"
+            deletedBy: user.isAdmin && !isOwner ? "admin" : "propriétaire"
         };
     } catch (error) {
-        console.error("❌ Article deletion error:", error);
+        console.error("Erreur suppression article:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error: " + error.message };
+        ctx.response.body = { error: "Erreur interne du serveur: " + error.message };
     }
 });
 
-// Mark an article as sold
+// Marquer un article comme vendu
 router.patch("/api/articles/:id/sold", cookieAuthMiddleware, async (ctx) => {
     try {
         const articleId = parseInt(ctx.params.id);
@@ -1342,11 +1457,11 @@ router.patch("/api/articles/:id/sold", cookieAuthMiddleware, async (ctx) => {
         
         if (!articleId || isNaN(articleId)) {
             ctx.response.status = 400;
-            ctx.response.body = { error: "Invalid article ID" };
+            ctx.response.body = { error: "ID d'article invalide" };
             return;
         }
         
-        // Check if the article exists
+        // Vérifier si l'article existe
         const articles = await client.query(
             "SELECT * FROM articles WHERE id = ?",
             [articleId]
@@ -1354,59 +1469,52 @@ router.patch("/api/articles/:id/sold", cookieAuthMiddleware, async (ctx) => {
         
         if (articles.length === 0) {
             ctx.response.status = 404;
-            ctx.response.body = { error: "Article not found" };
+            ctx.response.body = { error: "Article non trouvé" };
             return;
         }
         
         const article = articles[0];
         
-        // Check permissions: either owner OR admin
+        // Vérifier les permissions: soit propriétaire SOIT admin
         const isOwner = article.user_id === user.id;
         
         if (!isOwner && !user.isAdmin) {
             ctx.response.status = 403;
-            ctx.response.body = { error: "Forbidden: You can only modify your own articles" };
+            ctx.response.body = { error: "Interdit: Vous ne pouvez modifier que vos propres articles" };
             return;
         }
         
-        // Toggle the sold status
+        // Basculer le statut vendu
         const currentStatus = article.is_sold;
         const newStatus = !currentStatus;
-        
-        // Log admin action for auditing
-        if (user.isAdmin && !isOwner) {
-            console.log(`🚨 ADMIN ACTION: User ${user.username} (ID: ${user.id}) is marking article ${articleId} as ${newStatus ? 'sold' : 'available'} (owned by user ${article.user_id})`);
-        }
         
         await client.execute(
             "UPDATE articles SET is_sold = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             [newStatus, articleId]
         );
         
-        console.log(`📦 Article ${articleId} marked as ${newStatus ? 'sold' : 'available'} by ${user.isAdmin && !isOwner ? 'admin' : 'owner'} ${user.username}`);
-        
         ctx.response.status = 200;
         ctx.response.body = {
-            message: `Article marked as ${newStatus ? 'sold' : 'available'} successfully`,
+            message: `Article marqué comme ${newStatus ? 'vendu' : 'disponible'} avec succès`,
             article: {
                 id: articleId,
                 is_sold: newStatus
             },
-            actionBy: user.isAdmin && !isOwner ? "admin" : "owner"
+            actionBy: user.isAdmin && !isOwner ? "admin" : "propriétaire"
         };
     } catch (error) {
-        console.error("❌ Article status update error:", error);
+        console.error("Erreur mise à jour statut article:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error" };
+        ctx.response.body = { error: "Erreur interne du serveur" };
     }
 });
 
-// Get all articles for the current user
+// Récupérer tous les articles de l'utilisateur actuel
 router.get("/api/users/me/articles", cookieAuthMiddleware, async (ctx) => {
     try {
         const user = ctx.state.user;
         
-        // Get all articles for the user
+        // Récupérer tous les articles de l'utilisateur
         const articles = await client.query(`
             SELECT 
                 a.*,
@@ -1435,7 +1543,7 @@ router.get("/api/users/me/articles", cookieAuthMiddleware, async (ctx) => {
         `, [user.id]);
         
         ctx.response.body = {
-            message: "User articles retrieved successfully",
+            message: "Articles de l'utilisateur récupérés avec succès",
             articles: articles.map(article => ({
                 id: article.id,
                 item_type: article.item_type,
@@ -1451,269 +1559,53 @@ router.get("/api/users/me/articles", cookieAuthMiddleware, async (ctx) => {
             }))
         };
     } catch (error) {
-        console.error("❌ User articles retrieval error:", error);
+        console.error("Erreur récupération articles utilisateur:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error" };
+        ctx.response.body = { error: "Erreur interne du serveur" };
     }
 });
 
-// Get article messages
+// Récupérer les messages d'un article
 router.get("/api/articles/:id/messages", cookieAuthMiddleware, async (ctx) => {
     try {
         const articleId = parseInt(ctx.params.id);
         
         if (!articleId || isNaN(articleId)) {
             ctx.response.status = 400;
-            ctx.response.body = { error: "Invalid article ID" };
+            ctx.response.body = { error: "ID d'article invalide" };
             return;
         }
         
         const messages = await chatManager.getMessageHistory(articleId);
         
         ctx.response.body = {
-            message: "Article messages retrieved successfully",
+            message: "Messages de l'article récupérés avec succès",
             messages: messages
         };
     } catch (error) {
-        console.error("❌ Article messages retrieval error:", error);
+        console.error("❌ Erreur récupération messages article:", error);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error" };
+        ctx.response.body = { error: "Erreur interne du serveur" };
     }
 });
 
-// Chat WebSocket handler
-async function handleChatWebSocket(ctx: any) {
-    console.log("🔌 Chat WebSocket connection attempt:", ctx.request.url.toString());
-    
-    try {
-        const url = ctx.request.url;
-        const pathParts = url.pathname.split('/');
-        
-        if (pathParts.length < 4 || pathParts[1] !== 'ws' || pathParts[2] !== 'chat') {
-            console.log("❌ Invalid WebSocket path format");
-            ctx.response.status = 400;
-            ctx.response.body = { error: 'Invalid path format' };
-            return;
-        }
-        
-        const chatRoomId = pathParts[3];
-        const userId = parseInt(url.searchParams.get('userId') || '0');
-        
-        if (!chatRoomId || !userId || isNaN(userId)) {
-            console.log("❌ Invalid WebSocket parameters");
-            ctx.response.status = 400;
-            ctx.response.body = { error: 'Invalid parameters' };
-            return;
-        }
+// ==========================================
+// ROUTES UTILITAIRES
+// ==========================================
 
-        // Handle different types of chat rooms
-        let isDirectChat = false;
-        let articleId: number | null = null;
-        
-        if (chatRoomId.startsWith('direct_')) {
-            isDirectChat = true;
-        } else {
-            articleId = parseInt(chatRoomId);
-            if (!articleId || isNaN(articleId)) {
-                ctx.response.status = 400;
-                ctx.response.body = { error: 'Invalid article ID' };
-                return;
-            }
-            
-            // Verify article exists
-            const articles = await client.query("SELECT id FROM articles WHERE id = ?", [articleId]);
-            if (articles.length === 0) {
-                ctx.response.status = 404;
-                ctx.response.body = { error: 'Article not found' };
-                return;
-            }
-        }
-
-        // Get user info
-        const users = await client.query("SELECT username FROM users WHERE id = ?", [userId]);
-        if (users.length === 0) {
-            ctx.response.status = 404;
-            ctx.response.body = { error: 'User not found' };
-            return;
-        }
-        const username = users[0].username;
-
-        // Upgrade to WebSocket
-        const socket = ctx.upgrade();
-        const clientId = `${userId}_${chatRoomId}_${Date.now()}`;
-        let clientData: WebSocketClient;
-
-        socket.onopen = () => {
-            clientData = {
-                ws: socket,
-                userId,
-                username,
-                articleId: articleId || 0,
-                chatRoomId
-            };
-            
-            chatManager.addClient(clientId, clientData);
-            
-            socket.send(JSON.stringify({
-                type: 'connected',
-                message: 'Successfully connected to chat',
-                chatRoomId,
-                isDirectChat
-            }));
-            
-            // Send message history for article-based chats
-            if (!isDirectChat && articleId) {
-                chatManager.getMessageHistory(articleId).then(history => {
-                    if (socket.readyState === WebSocket.OPEN) {
-                        socket.send(JSON.stringify({
-                            type: 'history',
-                            messages: history
-                        }));
-                    }
-                });
-            } else {
-                socket.send(JSON.stringify({
-                    type: 'history',
-                    messages: []
-                }));
-            }
-
-            // Notify others that user joined
-            chatManager.broadcastToRoom(chatRoomId, {
-                type: 'user_joined',
-                username,
-                userId,
-                chatRoomId,
-                isDirectChat
-            }, clientId);
-        };
-
-        socket.onmessage = async (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                
-                switch (data.type) {
-                    case 'join':
-                        socket.send(JSON.stringify({
-                            type: 'joined',
-                            message: 'Successfully joined chat room',
-                            chatRoomId,
-                            isDirectChat
-                        }));
-                        break;
-                        
-                    case 'message':
-                        if (data.message && data.message.trim()) {
-                            if (isDirectChat) {
-                                // Direct chat - broadcast without saving
-                                const message = {
-                                    type: 'message',
-                                    userId,
-                                    username,
-                                    message: data.message.trim(),
-                                    timestamp: new Date().toISOString(),
-                                    chatRoomId,
-                                    isDirectChat: true
-                                };
-                                
-                                chatManager.broadcastToRoom(chatRoomId, message);
-                            } else if (articleId) {
-                                // Article-based chat - save to database
-                                const message: ChatMessage = {
-                                    article_id: articleId,
-                                    user_id: userId,
-                                    username,
-                                    message: data.message.trim(),
-                                    timestamp: new Date().toISOString()
-                                };
-                                
-                                try {
-                                    const messageId = await chatManager.saveMessage(message);
-                                    message.id = messageId;
-                                    
-                                    const broadcastMessage = {
-                                        type: 'message',
-                                        ...message,
-                                        userId: message.user_id,
-                                        isDirectChat: false
-                                    };
-                                    
-                                    chatManager.broadcastToRoom(chatRoomId, broadcastMessage);
-                                } catch (error) {
-                                    console.error('❌ Error saving message:', error);
-                                    socket.send(JSON.stringify({
-                                        type: 'error',
-                                        message: 'Failed to save message'
-                                    }));
-                                }
-                            }
-                        }
-                        break;
-
-                    case 'typing':
-                        chatManager.broadcastToRoom(chatRoomId, {
-                            type: 'typing',
-                            username,
-                            userId,
-                            chatRoomId
-                        }, clientId);
-                        break;
-
-                    case 'stop_typing':
-                        chatManager.broadcastToRoom(chatRoomId, {
-                            type: 'stop_typing',
-                            username,
-                            userId,
-                            chatRoomId
-                        }, clientId);
-                        break;
-                }
-            } catch (error) {
-                console.error('❌ Error handling WebSocket message:', error);
-                socket.send(JSON.stringify({
-                    type: 'error',
-                    message: 'Invalid message format'
-                }));
-            }
-        };
-
-        socket.onclose = () => {
-            if (clientData) {
-                chatManager.broadcastToRoom(chatRoomId, {
-                    type: 'user_left',
-                    username,
-                    userId,
-                    chatRoomId
-                }, clientId);
-            }
-            chatManager.removeClient(clientId);
-        };
-
-        socket.onerror = (error) => {
-            console.error(`❌ WebSocket error for user ${username}:`, error);
-            chatManager.removeClient(clientId);
-        };
-        
-    } catch (error) {
-        console.error('❌ Error in chat WebSocket handler:', error);
-        ctx.response.status = 500;
-        ctx.response.body = { error: "WebSocket connection failed" };
-    }
-}
-
-// Health check endpoint
+// Vérification de l'état de santé du serveur
 router.get("/api/health", (ctx) => {
     ctx.response.body = {
-        status: "healthy",
+        status: "sain",
         timestamp: new Date().toISOString(),
-        database: client ? "connected" : "disconnected",
+        database: client ? "connecté" : "déconnecté",
         activeSessions: Object.keys(activeSessions).length,
         uniqueUsers: new Set(Object.values(activeSessions).map(s => s.userId)).size,
         tabSessions: Object.keys(userTabSessions).length
     };
 });
 
-// ✅ FIXED: Enhanced debug endpoint to view active sessions with tab info
+// Endpoint de debug pour visualiser les sessions actives avec infos d'onglets
 router.get("/api/debug/sessions", (ctx) => {
     const sessionsByUser: { [username: string]: any[] } = {};
     
@@ -1724,11 +1616,11 @@ router.get("/api/debug/sessions", (ctx) => {
         
         sessionsByUser[info.username].push({
             sessionId: sessionId.substring(0, 8) + "...",
-            tabId: info.tabId ? info.tabId.substring(0, 8) + "..." : "Unknown",
+            tabId: info.tabId ? info.tabId.substring(0, 8) + "..." : "Inconnu",
             loginTime: info.loginTime,
             lastActivity: info.lastActivity,
-            userAgent: info.userAgent?.substring(0, 50) + "..." || "Unknown",
-            ipAddress: info.ipAddress || "Unknown",
+            userAgent: info.userAgent?.substring(0, 50) + "..." || "Inconnu",
+            ipAddress: info.ipAddress || "Inconnu",
             isAdmin: info.isAdmin
         });
     });
@@ -1752,33 +1644,34 @@ router.get("/api/debug/sessions", (ctx) => {
     };
 });
 
-// Application setup
+// ==========================================
+// CONFIGURATION DE L'APPLICATION
+// ==========================================
+
 const app = new Application();
 
-// Configure cookie keys for signing (optional but recommended)
-app.keys = ["your-secret-key-for-cookie-signing"];
+// Configurer les clés de cookies pour la signature
+app.keys = ["votre-clé-secrète-pour-signature-cookies"];
 
-// Debug middleware
+// Middleware de debug
 app.use(async (ctx, next) => {
     const start = Date.now();
-    console.log(`🚀 ${ctx.request.method} ${ctx.request.url.pathname}`);
     
     await next();
     
     const ms = Date.now() - start;
-    console.log(`✅ ${ctx.request.method} ${ctx.request.url.pathname} - ${ctx.response.status} - ${ms}ms`);
 });
 
-// WebSocket middleware
+// Middleware WebSocket
 app.use(async (ctx, next) => {
     const path = ctx.request.url.pathname;
     
-    // Handle chat WebSocket connections
+    // Gérer les connexions WebSocket de chat
     if (path.startsWith('/ws/chat/')) {
         const upgrade = ctx.request.headers.get("upgrade");
         if (upgrade?.toLowerCase() !== 'websocket') {
             ctx.response.status = 400;
-            ctx.response.body = { error: 'Expected WebSocket upgrade' };
+            ctx.response.body = { error: 'Mise à niveau WebSocket attendue' };
             return;
         }
         
@@ -1789,7 +1682,7 @@ app.use(async (ctx, next) => {
     await next();
 });
 
-// CORS middleware
+// Middleware CORS
 app.use(oakCors({
     origin: ["http://localhost:8080", "http://127.0.0.1:8080", "http://localhost:3000"], 
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
@@ -1798,36 +1691,40 @@ app.use(oakCors({
     optionsSuccessStatus: 200
 }));
 
-// Router middleware
+// Middleware du routeur
 app.use(router.routes());
 app.use(router.allowedMethods());
 
-// Error handling middleware
+// Middleware de gestion d'erreurs
 app.use(async (ctx, next) => {
     try {
         await next();
     } catch (err) {
-        console.error("❌ Unhandled error:", err);
+        console.error("Erreur non gérée:", err);
         ctx.response.status = 500;
-        ctx.response.body = { error: "Internal server error" };
+        ctx.response.body = { error: "Erreur interne du serveur" };
     }
 });
 
-// ✅ FIXED: Enhanced cleanup for expired sessions and tab mappings
+// ==========================================
+// FONCTIONS DE NETTOYAGE
+// ==========================================
+
+// Nettoyage amélioré pour les sessions expirées et les mappings d'onglets
 function cleanupExpiredSessions() {
     const now = new Date();
     const toRemove: string[] = [];
     const orphanedTabs: string[] = [];
     
-    // Find expired sessions
+    // Trouver les sessions expirées
     for (const [sessionId, info] of Object.entries(activeSessions)) {
         const inactiveTime = now.getTime() - info.lastActivity.getTime();
-        if (inactiveTime > 8 * 60 * 60 * 1000) { // 8 hours expiry
+        if (inactiveTime > JWT_CONFIG.expirationHours * 60 * 60 * 1000) { // Expiration en heures
             toRemove.push(sessionId);
         }
     }
     
-    // Remove expired sessions
+    // Supprimer les sessions expirées
     const userSessionCounts: { [username: string]: number } = {};
     toRemove.forEach(sessionId => {
         const info = activeSessions[sessionId];
@@ -1835,7 +1732,7 @@ function cleanupExpiredSessions() {
         delete activeSessions[sessionId];
     });
     
-    // ✅ NEW: Clean up orphaned tab mappings
+    // Nettoyer les mappings d'onglets orphelins
     for (const [tabId, sessionId] of Object.entries(userTabSessions)) {
         if (!activeSessions[sessionId]) {
             orphanedTabs.push(tabId);
@@ -1845,25 +1742,12 @@ function cleanupExpiredSessions() {
     orphanedTabs.forEach(tabId => {
         delete userTabSessions[tabId];
     });
-    
-    // Log cleanup results
-    Object.entries(userSessionCounts).forEach(([username, count]) => {
-        console.log(`🧹 Cleaned up ${count} expired session(s) for: ${username}`);
-    });
-    
-    if (orphanedTabs.length > 0) {
-        console.log(`🧹 Cleaned up ${orphanedTabs.length} orphaned tab mapping(s)`);
-    }
-    
-    if (toRemove.length > 0 || orphanedTabs.length > 0) {
-        console.log(`📊 Active sessions: ${Object.keys(activeSessions).length}, Tab mappings: ${Object.keys(userTabSessions).length}`);
-    }
 }
 
-// Start cleanup every 30 minutes
+// Démarrer le nettoyage toutes les 30 minutes
 setInterval(cleanupExpiredSessions, 30 * 60 * 1000);
 
-// ✅ NEW: Additional cleanup on browser tab close (detect orphaned tabs)
+// Nettoyage supplémentaire à la fermeture d'onglet de navigateur (détecter les onglets orphelins)
 function cleanupOrphanedTabs() {
     const orphanedTabs: string[] = [];
     
@@ -1877,91 +1761,35 @@ function cleanupOrphanedTabs() {
     orphanedTabs.forEach(tabId => {
         delete userTabSessions[tabId];
     });
-    
-    if (orphanedTabs.length > 0) {
-        console.log(`🧹 Cleaned up ${orphanedTabs.length} orphaned tab(s) during periodic check`);
-    }
 }
 
-// Run tab cleanup every 5 minutes
+// Exécuter le nettoyage des onglets toutes les 5 minutes
 setInterval(cleanupOrphanedTabs, 5 * 60 * 1000);
 
-// Start server
+// ==========================================
+// DÉMARRAGE DU SERVEUR
+// ==========================================
+
 async function startServer() {
-    console.log("🚀 Starting Authentication Server...");
     
-    // Connect to database
+    // Se connecter à la base de données
     const connected = await connectToDatabase();
     if (!connected) {
-        console.log("💡 To start MySQL Docker container:");
-        console.log("   sudo docker start mysql-auth");
-        console.log("💡 Or create new container:");
-        console.log(`   sudo docker run --name mysql-auth -e MYSQL_ROOT_PASSWORD=mypassword -e MYSQL_DATABASE=auth_db -p 3306:3306 -d mysql:8.0`);
         Deno.exit(1);
     }
     
-    // Initialize database
+    // Initialiser la base de données
     await initializeDatabase();
-    await initializeChatTables();
     
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
-    console.log("📚 Available endpoints:");
-    console.log("  POST /api/auth/init-tab - Initialize browser tab");
-    console.log("  POST /api/auth/register - Register a new user");
-    console.log("  POST /api/auth/login - Login user");
-    console.log("  POST /api/auth/logout - Logout current session");
-    console.log("  GET  /test_cookie - Test authentication");
-    console.log("  GET  /api/health - Health check");
-    console.log("  GET  /api/debug/sessions - View active sessions (debug)");
-    console.log("  POST /api/books - Create a book");
-    console.log("  POST /api/dvds - Create a DVD");
-    console.log("  POST /api/cds - Create a CD");
-    console.log("  POST /api/articles - Create an article");
-    console.log("  GET  /api/articles - Get all articles");
-    console.log("  GET  /api/articles/book - Get book articles");
-    console.log("  GET  /api/articles/dvd - Get DVD articles");
-    console.log("  GET  /api/articles/cd - Get CD articles");
-    console.log("  DELETE /api/articles/:id - Delete an article");
-    console.log("  PATCH /api/articles/:id/sold - Toggle article sold status");
-    console.log("  GET  /api/users/me/articles - Get current user's articles");
-    console.log("  GET  /api/articles/:id/messages - Get article messages");
-    console.log("  WS   /ws/chat/:roomId - WebSocket chat connection");
-    console.log("");
-    console.log("✅ FIXED: Tab-specific session management implemented");
-    console.log("✅ FIXED: Multiple users can now login simultaneously without interference");
-    console.log("✅ FIXED: Each browser tab maintains its own session context");
-    console.log("✅ FIXED: Proper session cleanup and tab mapping management");
-    console.log("✅ FIXED: Enhanced session isolation prevents cross-account contamination");
-    console.log("");
-    console.log("🏷️ Tab Management:");
-    console.log("   - Each browser tab gets a unique tab ID");
-    console.log("   - Tab IDs are mapped to specific user sessions");
-    console.log("   - Refreshing a tab maintains the same user session");
-    console.log("   - Different users in different tabs work independently");
-    console.log("");
-    console.log("🔧 How it works:");
-    console.log("   1. User opens tab → gets unique tab_id cookie");
-    console.log("   2. User logs in → session mapped to tab_id");
-    console.log("   3. Tab refresh → uses existing tab_id to find session");
-    console.log("   4. Different tab → different tab_id → different session");
-    console.log("   5. Logout → clears both session and tab mapping");
-    console.log("");
-    console.log("🌐 Frontend: Open your HTML files in browser");
-    console.log("📊 Database: MySQL running in Docker container 'mysql-auth'");
-    console.log("🔍 Debug: Visit http://localhost:8000/api/debug/sessions to view active sessions");
-    console.log("🔍 Health: Visit http://localhost:8000/api/health for system status");
-    
-    await app.listen({ port: PORT });
+    await app.listen({ port: SERVER_PORT });
 }
 
-// Handle graceful shutdown
+// Gérer l'arrêt gracieux
 addEventListener("unload", async () => {
-    console.log("🛑 Shutting down server...");
     if (client) {
         await client.close();
-        console.log("✅ Database connection closed");
     }
 });
 
-// Start the server
+// Démarrer le serveur
 startServer().catch(console.error);
