@@ -21,6 +21,7 @@ const JWT_CONFIG = {
     expirationHours: 2
 };
 
+
 const SERVER_PORT = 8000;
 
 // ==========================================
@@ -1684,7 +1685,7 @@ app.use(async (ctx, next) => {
 
 // Middleware CORS
 app.use(oakCors({
-    origin: ["http://localhost:8080", "http://127.0.0.1:8080", "http://localhost:3000"], 
+    origin: ["https://localhost:8080", "https://127.0.0.1:8080", "https://localhost:3000"], 
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization", "Cache-Control"],
     credentials: true,
@@ -1780,11 +1781,19 @@ async function startServer() {
     
     // Initialiser la base de données
     await initializeDatabase();
+
+    const cert = await Deno.readTextFile("./certs/server.crt");
+    const key = await Deno.readTextFile("./certs/server.key");
     
-    await app.listen({ port: SERVER_PORT });
+    await app.listen({ 
+    port: SERVER_PORT,
+    secure: true,
+    cert: cert,
+    key: key
+});
 }
 
-// Gérer l'arrêt gracieux
+// Gérer l'arrêt
 addEventListener("unload", async () => {
     if (client) {
         await client.close();

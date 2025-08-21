@@ -22,7 +22,7 @@ class ArticleDetailsApp {
     // Vérifier l'authentification et récupérer les informations utilisateur
     async getCurrentUser() {
         try {
-            const response = await fetch('http://localhost:8000/test_cookie', {
+            const response = await fetch('https://localhost:8000/test_cookie', {
                 credentials: 'include'  // Inclut les cookies pour l'authentification
             });
 
@@ -70,7 +70,7 @@ class ArticleDetailsApp {
         this.hideArticleDetails();
 
         try {
-            const response = await fetch(`http://localhost:8000/api/articles`);
+            const response = await fetch(`https://localhost:8000/api/articles`);
             
             if (!response.ok) {
                 throw new Error(`Erreur HTTP! statut: ${response.status}`);
@@ -285,7 +285,7 @@ class ArticleDetailsApp {
         try {
             
             // Envoie la requête de suppression avec authentification par cookie
-            const response = await fetch(`http://localhost:8000/api/articles/${this.articleId}`, {
+            const response = await fetch(`https://localhost:8000/api/articles/${this.articleId}`, {
                 method: 'DELETE',
                 credentials: 'include',
                 headers: {
@@ -341,7 +341,7 @@ class ArticleDetailsApp {
 
         try {
             
-            const response = await fetch(`http://localhost:8000/api/articles/${this.articleId}`, {
+            const response = await fetch(`https://localhost:8000/api/articles/${this.articleId}`, {
                 method: 'DELETE',
                 credentials: 'include',
                 headers: {

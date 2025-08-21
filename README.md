@@ -18,12 +18,12 @@ mysql -h 127.0.0.1 -P 3306 -u root -p
 
 ### 2. Backend (Main)
 ```bash
-deno run --allow-net --allow-env --allow-read main.ts
+deno run --allow-net --allow-env --allow-read --allow-write main.ts
 ```
 
 ### 3. Frontend
 ```bash
-deno run --allow-net --allow-env --allow-read server.ts
+deno run --allow-net --allow-env --allow-read --allow-write server.ts
 ```
 
 ## Informations de Connexion

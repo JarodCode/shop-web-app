@@ -66,7 +66,7 @@ class ChatApp {
     // Nécessaire pour déterminer la propriété des messages et s'authentifier au WebSocket
     async getCurrentUser() {
         try {
-            const response = await fetch('http://localhost:8000/test_cookie', {
+            const response = await fetch('https://localhost:8000/test_cookie', {
                 credentials: 'include'
             });
 
@@ -96,7 +96,7 @@ class ChatApp {
     async getOtherUserInfo() {
         try {
             if (this.articleId) {
-                const response = await fetch(`http://localhost:8000/api/articles`, {
+                const response = await fetch(`https://localhost:8000/api/articles`, {
                     credentials: 'include'
                 });
                 

@@ -24,5 +24,13 @@ app.use(async (ctx) => {
 app.use(router.routes());
 app.use(router.allowedMethods());
 
-console.log(`Oak server without cors/csp running on http://localhost:${PORT}/`);
-await app.listen({ port: PORT });
+        
+const cert = await Deno.readTextFile("./certs/server.crt");
+const key = await Deno.readTextFile("./certs/server.key");
+
+await app.listen({ 
+    port: PORT,
+    secure: true,
+    cert: cert,
+    key: key
+});

@@ -7,7 +7,7 @@ class MarketplaceApp {
         this.searchTerm = '';
         this.articles = [];
         this.genres = [];
-        this.API_BASE_URL = 'http://localhost:8000';
+        this.API_BASE_URL = 'https://localhost:8000';
         
         this.init();
     }

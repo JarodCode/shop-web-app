@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'https://localhost:8000';
 
 // Envoie les identifiants à l'API et gère la réponse de connexion
 // Stocke automatiquement le cookie de session si l'authentification réussit

@@ -25,7 +25,7 @@ class ConversationsApp {
     // Nécessaire pour déterminer la propriété des messages et s'authentifier au WebSocket
     async getCurrentUser() {
         try {
-            const response = await fetch('http://localhost:8000/test_cookie', {
+            const response = await fetch('https://localhost:8000/test_cookie', {
                 credentials: 'include'
             });
 
@@ -52,7 +52,7 @@ class ConversationsApp {
             this.showLoading();
             
             // Utilise les articles comme point d'entrée
-            const articlesResponse = await fetch('http://localhost:8000/api/articles');
+            const articlesResponse = await fetch('https://localhost:8000/api/articles');
             if (!articlesResponse.ok) throw new Error('Failed to load articles');
             
             const articlesData = await articlesResponse.json();
@@ -149,7 +149,7 @@ class ConversationsApp {
     // Récupère tous les messages associés à un article spécifique
     async getArticleMessages(articleId) {
         try {
-            const response = await fetch(`http://localhost:8000/api/articles/${articleId}/messages`, {
+            const response = await fetch(`https://localhost:8000/api/articles/${articleId}/messages`, {
                 credentials: 'include'
             });
             

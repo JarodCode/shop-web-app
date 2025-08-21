@@ -176,7 +176,7 @@ async function handleItemSubmit(e) {
             }
         });
         
-        const response = await fetch(`http://localhost:8000/api/${selectedItemType}s`, {
+        const response = await fetch(`https://localhost:8000/api/${selectedItemType}s`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -256,7 +256,7 @@ async function handleArticleSubmit(e) {
             throw new Error("Price must be greater than 0");
         }
         
-        const response = await fetch('http://localhost:8000/api/articles', {
+        const response = await fetch('https://localhost:8000/api/articles', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -331,7 +331,7 @@ function resetAllForms() {
 // Déconnecte l'utilisateur via API et redirige vers login
 async function logout() {
     try {
-        await fetch('http://localhost:8000/api/auth/logout', {
+        await fetch('https://localhost:8000/api/auth/logout', {
             method: 'POST',
             credentials: 'include'
         });
