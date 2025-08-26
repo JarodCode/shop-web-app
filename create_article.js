@@ -26,55 +26,86 @@ document.addEventListener('DOMContentLoaded', function() {
 // Configure tous les écouteurs d'événements de l'interface
 function setupEventListeners() {
     // Gestion des clics sur les boutons de type d'article
-    bookTypeBtn.addEventListener('click', () => selectItemType('book'));
-    dvdTypeBtn.addEventListener('click', () => selectItemType('dvd'));
-    cdTypeBtn.addEventListener('click', () => selectItemType('cd'));
+    if (bookTypeBtn) {
+        bookTypeBtn.addEventListener('click', () => selectItemType('book'));
+    }
+    if (dvdTypeBtn) {
+        dvdTypeBtn.addEventListener('click', () => selectItemType('dvd'));
+    }
+    if (cdTypeBtn) {
+        cdTypeBtn.addEventListener('click', () => selectItemType('cd'));
+    }
 
     // Interception des soumissions de formulaires
-    itemForm.addEventListener('submit', handleItemSubmit);
-    articleForm.addEventListener('submit', handleArticleSubmit);
+    if (itemForm) {
+        itemForm.addEventListener('submit', handleItemSubmit);
+    }
+    if (articleForm) {
+        articleForm.addEventListener('submit', handleArticleSubmit);
+    }
 
     // Boutons d'annulation
-    document.getElementById('cancelItemBtn').addEventListener('click', () => {
-        itemCreationSection.style.display = 'none';
-        resetItemForm();
-    });
-
-    document.getElementById('cancelArticleBtn').addEventListener('click', () => {
-        articleCreationSection.style.display = 'none';
-        itemCreationSection.style.display = 'block';
-    });
+    const cancelItemBtn = document.getElementById('cancelItemBtn');
+    const cancelArticleBtn = document.getElementById('cancelArticleBtn');
+    if (cancelItemBtn) {
+        cancelItemBtn.addEventListener('click', () => {
+            itemCreationSection.style.display = 'none';
+            resetItemForm();
+        });
+    }
+    if (cancelArticleBtn) {
+        cancelArticleBtn.addEventListener('click', () => {
+            articleCreationSection.style.display = 'none';
+            itemCreationSection.style.display = 'block';
+        });
+    }
 
     // Navigation
-    document.getElementById('backBtn').addEventListener('click', () => {
-        window.location.href = 'profile.html';
-    });
+    const backBtn = document.getElementById('backBtn');
+    if (backBtn) {
+        backBtn.addEventListener('click', () => {
+            window.location.href = 'profile.html';
+        });
+    }
 
     // Déconnexion avec confirmation
-    document.getElementById('logoutBtn').addEventListener('click', () => {
-        if (confirm('Are you sure you want to logout?')) {
-            logout();
-        }
-    });
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+            if (confirm('Are you sure you want to logout?')) {
+                logout();
+            }
+        });
+    }
 
     // Actions après création réussie
-    document.getElementById('createAnotherBtn').addEventListener('click', () => {
-        successMessage.style.display = 'none';
-        resetAllForms();
-    });
-
-    document.getElementById('backToProfileBtn').addEventListener('click', () => {
-        window.location.href = 'profile.html';
-    });
+    const createAnotherBtn = document.getElementById('createAnotherBtn');
+    const backToProfileBtn = document.getElementById('backToProfileBtn');
+    if (createAnotherBtn) {
+        createAnotherBtn.addEventListener('click', () => {
+            successMessage.style.display = 'none';
+            resetAllForms();
+        });
+    }
+    if (backToProfileBtn) {
+        backToProfileBtn.addEventListener('click', () => {
+            window.location.href = 'profile.html';
+        });
+    }
 
     // Gestion des messages d'erreur
-    document.getElementById('retryBtn').addEventListener('click', () => {
-        errorMessage.style.display = 'none';
-    });
-
-    document.getElementById('dismissErrorBtn').addEventListener('click', () => {
-        errorMessage.style.display = 'none';
-    });
+    const retryBtn = document.getElementById('retryBtn');
+    const dismissErrorBtn = document.getElementById('dismissErrorBtn');
+    if (retryBtn) {
+        retryBtn.addEventListener('click', () => {
+            errorMessage.style.display = 'none';
+        });
+    }
+    if (dismissErrorBtn) {
+        dismissErrorBtn.addEventListener('click', () => {
+            errorMessage.style.display = 'none';
+        });
+    }
 }
 
 // Sélectionne le type d'article et génère le formulaire correspondant
@@ -83,14 +114,21 @@ function selectItemType(type) {
     
     // Mise à jour visuelle des boutons
     document.querySelectorAll('.type-btn').forEach(btn => btn.classList.remove('active'));
-    document.getElementById(`${type}TypeBtn`).classList.add('active');
+    const activeBtn = document.getElementById(`${type}TypeBtn`);
+    if (activeBtn) {
+        activeBtn.classList.add('active');
+    }
     
-    itemCreationSection.style.display = 'block';
+    if (itemCreationSection) {
+        itemCreationSection.style.display = 'block';
+    }
     createFormForType(type);
 }
 
 // Génère dynamiquement le formulaire selon le type d'article
 function createFormForType(type) {
+    if (!itemForm) return;
+    
     const formContainer = itemForm.querySelector('.form-container') || itemForm;
     
     // Supprime les formulaires précédents
@@ -104,11 +142,11 @@ function createFormForType(type) {
             <div class="item-form active">
                 <h3>Book Information</h3>
                 <div class="form-group">
-                    <label for="bookTitle">Title *</label>
+                    <label for="bookTitle">Titre</label>
                     <input type="text" id="bookTitle" name="title" required>
                 </div>
                 <div class="form-group">
-                    <label for="bookAuthor">Author *</label>
+                    <label for="bookAuthor">Auteur</label>
                     <input type="text" id="bookAuthor" name="author" required>
                 </div>
                 <div class="form-group">
@@ -122,11 +160,11 @@ function createFormForType(type) {
             <div class="item-form active">
                 <h3>DVD Information</h3>
                 <div class="form-group">
-                    <label for="dvdTitle">Title *</label>
+                    <label for="dvdTitle">Titre</label>
                     <input type="text" id="dvdTitle" name="title" required>
                 </div>
                 <div class="form-group">
-                    <label for="dvdDirector">Director *</label>
+                    <label for="dvdDirector">Réalisateur </label>
                     <input type="text" id="dvdDirector" name="director" required>
                 </div>
                 <div class="form-group">
@@ -140,7 +178,7 @@ function createFormForType(type) {
             <div class="item-form active">
                 <h3>CD Information</h3>
                 <div class="form-group">
-                    <label for="cdAuthor">Artist/Author *</label>
+                    <label for="cdAuthor">Nom de l'album</label>
                     <input type="text" id="cdAuthor" name="author" required>
                 </div>
                 <div class="form-group">
@@ -163,6 +201,12 @@ function createFormForType(type) {
 // Traite la soumission du formulaire d'article via requête API
 async function handleItemSubmit(e) {
     e.preventDefault();
+    
+    if (!selectedItemType) {
+        showError('Please select an item type first');
+        return;
+    }
+    
     showLoading('Creating item...');
     
     try {
@@ -195,7 +239,6 @@ async function handleItemSubmit(e) {
         showArticleCreation(result[selectedItemType]);
         
     } catch (error) {
-        console.error('Item creation error:', error);
         showError(error.message || 'Failed to create item. Please try again.');
     } finally {
         hideLoading();
@@ -204,8 +247,12 @@ async function handleItemSubmit(e) {
 
 // Affiche la section création d'annonce avec résumé de l'article créé
 function showArticleCreation(itemData) {
-    itemCreationSection.style.display = 'none';
-    articleCreationSection.style.display = 'block';
+    if (itemCreationSection) {
+        itemCreationSection.style.display = 'none';
+    }
+    if (articleCreationSection) {
+        articleCreationSection.style.display = 'block';
+    }
     
     let previewHtml = `<h4>Item Created Successfully!</h4>`;
     
@@ -219,7 +266,7 @@ function showArticleCreation(itemData) {
     } else if (selectedItemType === 'dvd') {
         previewHtml += `
             <p><strong>Title:</strong> ${itemData.title}</p>
-            <p><strong>Director:</strong> ${itemData.director}</p>
+            <p><strong>Réalisateur:</strong> ${itemData.director}</p>
             ${itemData.genre ? `<p><strong>Genre:</strong> ${itemData.genre}</p>` : ''}
             ${itemData.publication_date ? `<p><strong>Release Date:</strong> ${itemData.publication_date}</p>` : ''}
         `;
@@ -231,7 +278,9 @@ function showArticleCreation(itemData) {
         `;
     }
     
-    itemPreview.innerHTML = previewHtml;
+    if (itemPreview) {
+        itemPreview.innerHTML = previewHtml;
+    }
 }
 
 // Traite la soumission du formulaire d'annonce avec validation
@@ -240,11 +289,14 @@ async function handleArticleSubmit(e) {
     showLoading('Creating article...');
     
     try {
+        const articleDescription = document.getElementById('articleDescription');
+        const articlePrice = document.getElementById('articlePrice');
+        
         const articleData = {
             item_type: selectedItemType,
             item_id: createdItemId,
-            description: document.getElementById('articleDescription').value || '',
-            price: parseFloat(document.getElementById('articlePrice').value)
+            description: articleDescription ? articleDescription.value || '' : '',
+            price: articlePrice ? parseFloat(articlePrice.value) : 0
         };
         
         // Validation côté client
@@ -267,7 +319,6 @@ async function handleArticleSubmit(e) {
         
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-            console.error('Server error response:', errorData);
             throw new Error(errorData.error || `Server error: ${response.status}`);
         }
         
@@ -283,7 +334,6 @@ async function handleArticleSubmit(e) {
         }
         
     } catch (error) {
-        console.error('Article creation error:', error);
         showError(error.message || 'Failed to create article. Please try again.');
     } finally {
         hideLoading();
@@ -291,41 +341,66 @@ async function handleArticleSubmit(e) {
 }
 
 function showLoading(text = 'Loading...') {
-    document.getElementById('loadingText').textContent = text;
-    loadingOverlay.style.display = 'flex';
+    const loadingText = document.getElementById('loadingText');
+    if (loadingText) {
+        loadingText.textContent = text;
+    }
+    if (loadingOverlay) {
+        loadingOverlay.style.display = 'flex';
+    }
 }
 
 function hideLoading() {
-    loadingOverlay.style.display = 'none';
+    if (loadingOverlay) {
+        loadingOverlay.style.display = 'none';
+    }
 }
 
 function showSuccess(text) {
-    document.getElementById('successText').textContent = text;
-    successMessage.style.display = 'flex';
+    const successText = document.getElementById('successText');
+    if (successText) {
+        successText.textContent = text;
+    }
+    if (successMessage) {
+        successMessage.style.display = 'flex';
+    }
 }
 
 function showError(text) {
-    document.getElementById('errorText').textContent = text;
-    errorMessage.style.display = 'flex';
+    const errorText = document.getElementById('errorText');
+    if (errorText) {
+        errorText.textContent = text;
+    }
+    if (errorMessage) {
+        errorMessage.style.display = 'flex';
+    }
 }
 
 // Remet à zéro le formulaire d'article et supprime les formulaires dynamiques
 function resetItemForm() {
-    itemForm.reset();
+    if (itemForm) {
+        itemForm.reset();
+    }
     selectedItemType = null;
     createdItemId = null;
     document.querySelectorAll('.type-btn').forEach(btn => btn.classList.remove('active'));
     
-    const existingForms = itemForm.querySelectorAll('.item-form');
+    const existingForms = document.querySelectorAll('.item-form');
     existingForms.forEach(form => form.remove());
 }
 
 // Remet à zéro tous les formulaires et masque les sections
 function resetAllForms() {
     resetItemForm();
-    articleForm.reset();
-    itemCreationSection.style.display = 'none';
-    articleCreationSection.style.display = 'none';
+    if (articleForm) {
+        articleForm.reset();
+    }
+    if (itemCreationSection) {
+        itemCreationSection.style.display = 'none';
+    }
+    if (articleCreationSection) {
+        articleCreationSection.style.display = 'none';
+    }
 }
 
 // Déconnecte l'utilisateur via API et redirige vers login
@@ -337,7 +412,6 @@ async function logout() {
         });
         window.location.href = 'login.html';
     } catch (error) {
-        console.error('Logout error:', error);
         window.location.href = 'login.html';
     }
 }

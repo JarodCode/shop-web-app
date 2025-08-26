@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🐳 Docker MySQL Setup Script"
+echo "Docker MySQL Setup Script"
 echo "=============================="
 
 # Colors for output
@@ -46,7 +46,7 @@ fi
 # Test connection
 echo -e "${YELLOW}Testing MySQL connection...${NC}"
 if sudo docker exec mysql-auth mysqladmin ping -h localhost --silent; then
-    echo -e "${GREEN}✅ MySQL is running and accessible!${NC}"
+    echo -e "${GREEN} MySQL is running and accessible!${NC}"
     echo ""
     echo "Connection details:"
     echo "  Host: 127.0.0.1"
@@ -59,6 +59,6 @@ if sudo docker exec mysql-auth mysqladmin ping -h localhost --silent; then
     echo "  Stop:  sudo docker stop mysql-auth"
     echo "  Logs:  sudo docker logs mysql-auth"
 else
-    echo -e "${RED}❌ MySQL connection failed${NC}"
+    echo -e "${RED} MySQL connection failed${NC}"
     echo "Check container logs: sudo docker logs mysql-auth"
 fi

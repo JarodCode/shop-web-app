@@ -130,72 +130,74 @@ class ChatApp {
     // Établit la connexion WebSocket avec le serveur de chat
     // Détermine la salle de chat et gère la reconnexion automatique
     connectWebSocket() {
-        try {
-            // Détermine l'ID de la salle de chat selon le contexte
+    try {
+        // Détermine l'ID de la salle de chat selon le contexte
+        if (this.articleId) {
+            // Chat basé sur un article - utilise l'ID de l'article comme salle
+            this.chatRoomId = this.articleId;
+        } else {
+            // Chat direct - crée un ID de salle cohérent basé sur les noms d'utilisateur
+            const userIds = [this.currentUsername, this.otherUsername].sort();
+            this.chatRoomId = `direct_${userIds.join('_')}`;
+        }
+        
+        // 🔧 CORRECTION : Utiliser wss:// pour HTTPS ou ws:// pour HTTP
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//localhost:8000/ws/chat/${this.chatRoomId}?userId=${this.currentUserId}`;
+
+        this.ws = new WebSocket(wsUrl);
+        this.updateConnectionStatus('connecting');
+
+        // Événement déclenché quand la connexion WebSocket s'établit
+        this.ws.onopen = () => {
+            this.updateConnectionStatus('connected');
+            
+            // Envoie un message de connexion pour rejoindre la salle
+            const joinMessage = {
+                type: 'join',
+                userId: this.currentUserId,
+                username: this.currentUsername,
+                targetUser: this.otherUsername,
+                chatRoomId: this.chatRoomId
+            };
+            
             if (this.articleId) {
-                // Chat basé sur un article - utilise l'ID de l'article comme salle
-                this.chatRoomId = this.articleId;
-            } else {
-                // Chat direct - crée un ID de salle cohérent basé sur les noms d'utilisateur
-                const userIds = [this.currentUsername, this.otherUsername].sort();
-                this.chatRoomId = `direct_${userIds.join('_')}`;
+                joinMessage.articleId = parseInt(this.articleId);
             }
             
-            const wsUrl = `ws://localhost:8000/ws/chat/${this.chatRoomId}?userId=${this.currentUserId}`;
+            this.sendWebSocketMessage(joinMessage);
+        };
 
-            this.ws = new WebSocket(wsUrl);
-            this.updateConnectionStatus('connecting');
+        // Traite tous les messages reçus du serveur WebSocket
+        this.ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            this.handleWebSocketMessage(data);
+        };
 
-            // Événement déclenché quand la connexion WebSocket s'établit
-            this.ws.onopen = () => {
-                this.updateConnectionStatus('connected');
-                
-                // Envoie un message de connexion pour rejoindre la salle
-                const joinMessage = {
-                    type: 'join',
-                    userId: this.currentUserId,
-                    username: this.currentUsername,
-                    targetUser: this.otherUsername,
-                    chatRoomId: this.chatRoomId
-                };
-                
-                if (this.articleId) {
-                    joinMessage.articleId = parseInt(this.articleId);
-                }
-                
-                this.sendWebSocketMessage(joinMessage);
-            };
-
-            // Traite tous les messages reçus du serveur WebSocket
-            this.ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                this.handleWebSocketMessage(data);
-            };
-
-            // Gère la déconnexion et tente une reconnexion automatique si nécessaire
-            this.ws.onclose = (event) => {
-                this.updateConnectionStatus('disconnected');
-                
-                // Reconnexion automatique sauf si la fermeture est intentionnelle
-                if (event.code !== 1000 && event.code !== 1001) {
-                    setTimeout(() => {
-                        if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
-                            this.connectWebSocket();
-                        }
-                    }, 3000);
-                }
-            };
-
-            this.ws.onerror = (error) => {
-                console.error('Erreur WebSocket:', error);
-                this.updateConnectionStatus('disconnected');
-            };
-
-        } catch (error) {
-            console.error('Erreur de connexion au WebSocket:', error);
+        // Gère la déconnexion et tente une reconnexion automatique si nécessaire
+        this.ws.onclose = (event) => {
             this.updateConnectionStatus('disconnected');
-        }
+            
+            // Reconnexion automatique sauf si la fermeture est intentionnelle
+            if (event.code !== 1000 && event.code !== 1001) {
+                setTimeout(() => {
+                    if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
+                        this.connectWebSocket();
+                    }
+                }, 3000);
+            }
+        };
+
+        this.ws.onerror = (error) => {
+            console.error('Erreur WebSocket:', error);
+            this.updateConnectionStatus('disconnected');
+        };
+
+    } catch (error) {
+        console.error('Erreur de connexion au WebSocket:', error);
+        this.updateConnectionStatus('disconnected');
     }
+}
 
     // Distribue les messages WebSocket selon leur type vers les bonnes fonctions
     handleWebSocketMessage(data) {

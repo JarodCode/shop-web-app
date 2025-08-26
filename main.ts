@@ -390,45 +390,6 @@ async function cookieAuthMiddleware(ctx: any, next: () => Promise<unknown>) {
     }
 }
 
-// Middleware d'authentification simple pour les endpoints hérités
-async function simpleAuthMiddleware(ctx: any, next: () => Promise<unknown>) {
-    try {
-        const body = await ctx.request.body();
-        const bodyValue = await body.value;
-        const auth_token = bodyValue.auth_token;
-
-        if (!auth_token) {
-            ctx.response.status = 401;
-            ctx.response.body = { error: "Non autorisé: Aucun token fourni" };
-            return;
-        }
-
-        // Vérifier le token JWT
-        const payload = await verify(auth_token, secretKey) as JWTPayload;
-        
-        // Vérifier si la session existe
-        const sessionInfo = activeSessions[payload.sessionId];
-        if (!sessionInfo) {
-            ctx.response.status = 401;
-            ctx.response.body = { error: "Non autorisé: Session expirée" };
-            return;
-        }
-
-        // Ajouter les infos utilisateur au contexte
-        ctx.state.user = {
-            id: payload.userId,
-            username: payload.username,
-            isAdmin: payload.isAdmin
-        };
-
-        await next();
-    } catch (error) {
-        console.error("Erreur middleware auth simple:", error);
-        ctx.response.status = 401;
-        ctx.response.body = { error: "Non autorisé: Token invalide" };
-    }
-}
-
 // ==========================================
 // GESTIONNAIRE WEBSOCKET POUR LE CHAT
 // ==========================================
@@ -957,7 +918,7 @@ router.get("/test_cookie", cookieAuthMiddleware, async (ctx) => {
 // ==========================================
 
 // Créer un livre
-router.post("/api/books", simpleAuthMiddleware, async (ctx) => {
+router.post("/api/books", cookieAuthMiddleware, async (ctx) => {
     try {
         const body = await ctx.request.body();
         const { title, author, publication_date, genre } = await body.value;
@@ -992,7 +953,7 @@ router.post("/api/books", simpleAuthMiddleware, async (ctx) => {
 });
 
 // Créer un DVD
-router.post("/api/dvds", simpleAuthMiddleware, async (ctx) => {
+router.post("/api/dvds", cookieAuthMiddleware, async (ctx) => {
     try {
         const body = await ctx.request.body();
         const { title, publication_date, director, genre } = await body.value;
@@ -1027,7 +988,7 @@ router.post("/api/dvds", simpleAuthMiddleware, async (ctx) => {
 });
 
 // Créer un CD
-router.post("/api/cds", simpleAuthMiddleware, async (ctx) => {
+router.post("/api/cds", cookieAuthMiddleware, async (ctx) => {
     try {
         const body = await ctx.request.body();
         const { author, publication_date, genre } = await body.value;
@@ -1689,7 +1650,8 @@ app.use(oakCors({
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization", "Cache-Control"],
     credentials: true,
-    optionsSuccessStatus: 200
+    optionsSuccessStatus: 200,
+    preflightContinue: false
 }));
 
 // Middleware du routeur
